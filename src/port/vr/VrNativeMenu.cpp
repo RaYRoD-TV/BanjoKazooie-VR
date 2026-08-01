@@ -62,16 +62,32 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRMenuDist", 3.4f);
     CVarSetFloat("gVRMenuSize", 3.6f);
     CVarSetFloat("gVRThirdPersonDist", 0.8f);
+    CVarSetFloat("gVRFirstPersonScale", 100.0f);
+    CVarSetFloat("gVRFirstPersonFwd", 0.0f);
+    CVarSetFloat("gVRFirstPersonEyeHeight", 0.0f);
     CVarSetFloat("gVRDioramaWorldScale", 6200.0f);
     CVarSetFloat("gVRDioramaDist", 0.0f);
     CVarSetFloat("gVRDioramaHeight", -0.06f);
     CVarSetInteger("gVRFpVerticalLook", 0);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
+    CVarSetInteger("gVRFpSwimFollow", 1);
     CVarSetFloat("gVRHeadScale", 0.1f);
     CVarSetFloat("gVRFpLookSpeed", 160.0f);
     CVarSetInteger("gVRFpInvertX", 0);
     CVarSetInteger("gVRAntiClip", 1);
+    CVarSetInteger("gVRMouseLook", 1);
+    CVarSetFloat("gVRMouseSens", 0.10f);
+    CVarSetInteger("gVRHideHud", 0);
+    CVarSetFloat("gVRPointerSpeed", 1.0f);
+    CVarSetInteger("gVRFogMode", 1);
+    CVarSetFloat("gVRFogNear", 60.0f);
+    CVarSetFloat("gVRFogFar", 250.0f);
+    CVarSetFloat("gVRDrawDistance", 1.0f);
+    CVarSetInteger("gVRDisableCulling", 1);
+    CVarSetInteger("gVRCutscenes", 0);
+    CVarSetInteger("gVRPassthrough", 0);
+    CVarSetInteger("gVRMotionControls", 1);
 }
 static void RowResume(void); // needs the state block below
 
@@ -86,6 +102,10 @@ struct VrPage {
     int rowCount;
 };
 
+// The VIEW page shows the ACTIVE mode's own knobs. The per-mode split (each mode keeps its own
+// scale and framing CVars so tuning one never disturbs another) is invisible from inside a
+// headset: a first-person player who twists WORLD SCALE sees nothing happen and reads it as
+// broken - the first wild user did exactly that. Three variants of the first page, picked live.
 static const VrRow kRowsView[] = {
     { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",        1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
     { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
@@ -95,6 +115,30 @@ static const VrRow kRowsView[] = {
     { "CAM DIST",    ROW_FLOAT, "gVRThirdPersonDist", 0.05f, 0.3f, 3.0f, 0.8f, NULL, NULL, -1, "HOW FAR THE CAMERA SITS FROM BANJO. 1 IS STOCK." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",        0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",         0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
+    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
+};
+
+static const VrRow kRowsViewFp[] = {
+    { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",             1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
+    { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",         1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
+    { "FP SCALE",    ROW_FLOAT, "gVRFirstPersonScale",     1.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "WORLD SIZE IN FIRST PERSON ONLY." },
+    { "STEREO",      ROW_FLOAT, "gVRStereo",               0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
+    { "EYE RAISE",   ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
+    { "EYE FORWARD", ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
+    { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",             0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
+    { "HUD DIST",    ROW_FLOAT, "gVRHudDist",              0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
+    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
+};
+
+static const VrRow kRowsViewDiorama[] = {
+    { "VIEW MODE",      ROW_ENUM,  "gVRViewMode",          1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
+    { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 6200.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
+    { "STEREO",         ROW_FLOAT, "gVRStereo",            0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
+    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.0f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
+    { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.06f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
+    { "HUD SIZE",       ROW_FLOAT, "gVRHudScale",          0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
+    { "HUD DIST",       ROW_FLOAT, "gVRHudDist",           0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
+    { "VR DEFAULTS",    ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
 };
 
 static const VrRow kRowsFp[] = {
@@ -148,6 +192,23 @@ static const VrPage kPages[] = {
     { "SYSTEM",       kRowsSystem, (int)(sizeof(kRowsSystem) / sizeof(VrRow)) },
 };
 static const int kPageCount = (int)(sizeof(kPages) / sizeof(VrPage));
+
+// The VIEW page swaps to the active mode's row set, so its knobs always do something for the
+// world the player is currently standing in. Input and draw must resolve through the same call.
+static VrPage ResolvePage(int idx) {
+    VrPage p = kPages[idx];
+    if (idx == 0) {
+        const int m = vr_get_view_mode();
+        if (m == VR_VIEW_FIRST_PERSON) {
+            p.rows = kRowsViewFp;
+            p.rowCount = (int)(sizeof(kRowsViewFp) / sizeof(VrRow));
+        } else if (m == VR_VIEW_DIORAMA) {
+            p.rows = kRowsViewDiorama;
+            p.rowCount = (int)(sizeof(kRowsViewDiorama) / sizeof(VrRow));
+        }
+    }
+    return p;
+}
 
 // ---- state -------------------------------------------------------------------
 
@@ -277,7 +338,12 @@ static void MenuInput(void) {
         vr_controller_rumble(0.25f, 0.03f);
     }
 
-    const VrPage* page = &kPages[sPage];
+    const VrPage resolved = ResolvePage(sPage);
+    const VrPage* page = &resolved;
+    // Switching view mode on the first row can shrink the row set out from under the selection.
+    if (sSel >= page->rowCount) {
+        sSel = page->rowCount - 1;
+    }
 
     if (sRepeat > 0) {
         sRepeat--;
@@ -343,7 +409,11 @@ extern "C" void port_vrNativeMenu_push(void* gfx) {
     const int rowH = 13;
     int y = 55;
 
-    const VrPage* page = &kPages[sPage];
+    const VrPage resolved = ResolvePage(sPage);
+    const VrPage* page = &resolved;
+    if (sSel >= page->rowCount) {
+        sSel = page->rowCount - 1;
+    }
     text_setNormalTextColor(0xFF, 0xFF, 0xFF);
     // The bold font hangs UPWARD from the y it is given, so y=8 put most of the glyphs above the
     // panel's top edge - it read as "the title does not fit" however narrow it was made. Dropping it
