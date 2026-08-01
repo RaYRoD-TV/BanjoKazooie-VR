@@ -161,8 +161,15 @@ void func_802E39D0(Gfx **gfx, Mtx **mtx, Vtx **vtx, s32 framebuffer_idx, bool ar
     // background snapshot, otherwise they get baked into the pause background.
     extern bool gcpausemenu_isCapturing(void);
     bool capturing = gcpausemenu_isCapturing();
+    // [port] The in-game HUD (score widgets, item queue, overlay markers) also stands down when the
+    // player hides it for VR (gVRHideHud) or while the VR options overlay owns the screen. The
+    // print-buffer flush below is NOT gated - the overlay's own text rides it.
+    extern int port_vrHudHidden(void);
+    extern int port_vrNativeMenu_isOpen(void);
+    bool vrHudOff = port_vrHudHidden() != 0;
+    bool vrMenuUp = port_vrNativeMenu_isOpen() != 0;
 
-    if(!game_is_frozen() && gsworld_getEnableDraw() && !capturing){
+    if(!game_is_frozen() && gsworld_getEnableDraw() && !capturing && !vrHudOff){
         core2_A5BC0_drawScreenOverlayMarkers(gfx, mtx, vtx);
     }
 
@@ -171,10 +178,10 @@ void func_802E39D0(Gfx **gfx, Mtx **mtx, Vtx **vtx, s32 framebuffer_idx, bool ar
         // dummy_func_8025AFC0(gfx, mtx, vtx);
     }
 
-    if (!capturing) {
+    if (!capturing && !vrMenuUp) {
         gcdialog_draw(gfx, mtx, vtx);
     }
-    if(!game_is_frozen() && !capturing){
+    if(!game_is_frozen() && !capturing && !vrHudOff){
         itemPrint_draw(gfx, mtx, vtx);
     }
 

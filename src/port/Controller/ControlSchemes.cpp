@@ -22,6 +22,12 @@
 #include <libultraship/libultra/controller.h>
 #include <libultraship/bridge.h>
 
+// VR motion-controller merge (stubbed out in a flat build - see src/port/vr/VrGame.cpp).
+extern "C" void VrGame_MergePad(OSContPad* pad);
+extern "C" void VrGame_PollVrShortcuts(void);
+extern "C" void VrGame_HeadMoveShape(OSContPad* pad); // FP head-directed movement (after all merges)
+extern "C" void VrGame_SyncFrame(void);               // per-tick VR<->game state sync (menu plane etc.)
+
 #include "port/UI/cvar_prefixes.h"
 #include "port/Enhancements/Camera/FreeLookCamera.h"
 #include "port/ShipUtils.h"
@@ -208,6 +214,13 @@ extern "C" void port_shapeControllerInput(void* contPad) {
     if (pad == nullptr) {
         return;
     }
+    // VR motion controllers merge into pad 0 HERE - ahead of the port's edge detection in
+    // pfsManager_update, so menus see fresh-press edges - and before the demo-mode bail, so the
+    // controllers can still drive the attract-mode screens. The merge is additive per axis (stronger
+    // source wins), so a gamepad or keyboard keeps working alongside.
+    VrGame_MergePad(pad);
+    VrGame_PollVrShortcuts();
+    VrGame_SyncFrame();
     // Demo modes feed their own recorded pad; don't reshape live input over it.
     if (IsDemoMode()) {
         return;
@@ -217,7 +230,7 @@ extern "C" void port_shapeControllerInput(void* contPad) {
         return;
     }
 
-    const bool modern = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO) == CONTROL_SCHEME_MODERN;
+    const bool modern = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) == CONTROL_SCHEME_MODERN;
     const bool crouched = (bs_getState() == BS_7_CROUCH);
     const bool eggPooping = (bs_getState() == BS_A_EGG_ASS);
 
@@ -231,10 +244,26 @@ extern "C" void port_shapeControllerInput(void* contPad) {
             pad->button &= ~BTN_CDOWN;
         }
 
+        // Bindings applied under Retro can leave the right stick mapped to C-buttons as AXES; under
+        // Modern those must never reach the game as C presses (a stick-up C-Up plays the camera
+        // sound, yanks Free Look back to the auto camera, and triggers the game's own look mode).
+        // The wonderwing gesture below still reads the pre-strip stick direction.
+        const uint16_t stickCPre = pad->button & (BTN_CLEFT | BTN_CRIGHT);
+        {
+            uint16_t axisMaskM = 0;
+            if (CButtonIsAxis(controller, BTN_CRIGHT)) axisMaskM |= BTN_CRIGHT;
+            if (CButtonIsAxis(controller, BTN_CLEFT))  axisMaskM |= BTN_CLEFT;
+            if (CButtonIsAxis(controller, BTN_CDOWN))  axisMaskM |= BTN_CDOWN;
+            if (CButtonIsAxis(controller, BTN_CUP))    axisMaskM |= BTN_CUP;
+            if (arx * arx + ary * ary > 24 * 24) {
+                pad->button &= ~axisMaskM;
+            }
+        }
+
         const s32 mode = getGameMode();
         const bool picturePuzzle = (mode == GAME_MODE_8_BOTTLES_BONUS || mode == GAME_MODE_A_SNS_PICTURE);
         if (!picturePuzzle) {
-            const uint16_t stickC = pad->button & (BTN_CLEFT | BTN_CRIGHT);
+            const uint16_t stickC = stickCPre;
             uint16_t allow = 0;
 
             // One action per push, so holding the stick cannot repeat Wonderwing.
@@ -393,7 +422,7 @@ extern "C" void port_shapeControllerInput(void* contPad) {
     static bool sBWasHeld = false;
     const int32_t kBHoldFrames = 12; // ~0.2s before a standing press counts as a hold
     bool bHeld = (pad->button & BTN_CDOWN) != 0;
-    if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO) == CONTROL_SCHEME_POCKET && !crouched &&
+    if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) == CONTROL_SCHEME_POCKET && !crouched &&
         !eggPooping) {
         pad->button &= ~BTN_CDOWN;
         if (bHeld) {
@@ -422,7 +451,7 @@ extern "C" void port_shapeControllerInput(void* contPad) {
     //  RT on its own (no crouch) lightly touches the analog stick for a tip-toe.
     static bool sTipToe = false;
     static bool sPrevR2 = false;
-    if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO) == CONTROL_SCHEME_POCKET) {
+    if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) == CONTROL_SCHEME_POCKET) {
         bool r2 = false;
         bool l2 = false;
         auto ctx = Ship::Context::GetRawInstance();
@@ -464,4 +493,8 @@ extern "C" void port_shapeControllerInput(void* contPad) {
         sTipToe = false;
         sPrevR2 = false;
     }
+
+    // [port] VR First Person head-directed movement rotates the FINAL stick (all sources merged).
+    VrGame_HeadMoveShape(pad);
+
 }

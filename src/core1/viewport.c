@@ -1,4 +1,6 @@
 // BanjoDecomp: viewport.c
+#include <stdio.h>
+#include <stdlib.h>
 #include "core1/core1.h"
 #include "functions.h"
 #include "variables.h"
@@ -114,7 +116,7 @@ void viewport_setRenderPerspectiveMatrix(Gfx **gfx, Mtx **mtx, f32 near, f32 far
     port_viewport_applyMirror(gfx, mtx);
 
     // [port] Capture each rotation's Mtx* + raw angle so interpolation can
-    // angle-lerp and rebuild clean matrices — a matrix lerp on fast spins
+    // angle-lerp and rebuild clean matrices - a matrix lerp on fast spins
     // folds these into non-rotations.
     Mtx* rollMtx = *mtx;
     guRotate(*mtx, -sViewportRotation[2], 0.0f, 0.0f, -1.0f);
@@ -239,24 +241,54 @@ void viewport_unused_pushVpScaleAndTranslation(f32 scale_x, f32 scale_y, f32 tra
     osWritebackDCache(&sViewportStack[sViewportStackIndex], VIEWPORT_STACK_SIZE * sizeof(Vp));
 }
 
+// [port] Harness-only cull instrumentation (BK_VR_EYEDUMP): counts how many angular-cull checks
+// rejected since the last frustum rebuild, so "the widening changed nothing" is distinguishable
+// from "nothing here was ever culled" - a null image diff alone cannot tell those apart.
+static int sPortCullDbg = -1;
+static int sPortCullRejects = 0;
+static int sPortCullTicks = 0;
+
 void viewport_update(void) {
     f32 frustumX = 89.21774f;
     f32 frustumY = 93.9692611694336f;
+    // [port] VR stereo: cull against what the EYES can see, not the flat 40-degree window. The
+    // planes rebuild from the eye's actual view axis (game camera + head), widen to almost the
+    // front half-space, and back off by how far the eyes can sit from the camera anchor. No-op
+    // outside stereo, so flat culling is untouched.
+    f32 cullPitch = sViewportRotation[0];
+    f32 cullYaw = sViewportRotation[1];
+    f32 cullPad = 0.0f;
     CALL_EVENT(ViewportFrustumUpdate, &frustumX, &frustumY);
-    func_80256E24(sViewportFrustumPlanes[0], sViewportRotation[0], sViewportRotation[1], -frustumX, 0.0f, 45.168514251708984f);
-    func_80256E24(sViewportFrustumPlanes[1], sViewportRotation[0], sViewportRotation[1], frustumX, 0.0f, 45.168514251708984f);
-    func_80256E24(sViewportFrustumPlanes[2], sViewportRotation[0], sViewportRotation[1], 0.0f, frustumY, 34.20201110839844f);
-    func_80256E24(sViewportFrustumPlanes[3], sViewportRotation[0], sViewportRotation[1], 0.0f, -frustumY, 34.20201110839844f);
+    port_vrCullAdjust(&cullPitch, &cullYaw, &frustumX, &frustumY, &cullPad);
+    if (sPortCullDbg < 0) {
+        sPortCullDbg = (getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
+    }
+    if (sPortCullDbg && (++sPortCullTicks % 30) == 0) {
+        printf("[CULLDBG] tick %d: rejects/30t=%d fx=%.3f fy=%.3f pad=%.1f pitch=%.1f yaw=%.1f\n",
+               sPortCullTicks, sPortCullRejects, frustumX, frustumY, cullPad, cullPitch, cullYaw);
+        sPortCullRejects = 0;
+    }
+    if (sPortCullDbg && sPortCullTicks >= 600 && sPortCullTicks < 606) {
+        // Call-structure probe: viewport_update may run more than once per game tick with different
+        // camera states (sub-views); a per-call trace shows what each rebuild is actually aimed at.
+        printf("[CULLDBG] call %d: rot=(%.1f %.1f %.1f) pos=(%.0f %.0f %.0f)\n", sPortCullTicks,
+               sViewportRotation[0], sViewportRotation[1], sViewportRotation[2],
+               sViewportPosition[0], sViewportPosition[1], sViewportPosition[2]);
+    }
+    func_80256E24(sViewportFrustumPlanes[0], cullPitch, cullYaw, -frustumX, 0.0f, 45.168514251708984f);
+    func_80256E24(sViewportFrustumPlanes[1], cullPitch, cullYaw, frustumX, 0.0f, 45.168514251708984f);
+    func_80256E24(sViewportFrustumPlanes[2], cullPitch, cullYaw, 0.0f, frustumY, 34.20201110839844f);
+    func_80256E24(sViewportFrustumPlanes[3], cullPitch, cullYaw, 0.0f, -frustumY, 34.20201110839844f);
 
     ml_vec3f_normalize(sViewportFrustumPlanes[0]);
     ml_vec3f_normalize(sViewportFrustumPlanes[1]);
     ml_vec3f_normalize(sViewportFrustumPlanes[2]);
     ml_vec3f_normalize(sViewportFrustumPlanes[3]);
 
-    sViewportFrustumPlanes[0][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[0][0] + sViewportPosition[1]*sViewportFrustumPlanes[0][1] + sViewportPosition[2]*sViewportFrustumPlanes[0][2]);
-    sViewportFrustumPlanes[1][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[1][0] + sViewportPosition[1]*sViewportFrustumPlanes[1][1] + sViewportPosition[2]*sViewportFrustumPlanes[1][2]);
-    sViewportFrustumPlanes[2][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[2][0] + sViewportPosition[1]*sViewportFrustumPlanes[2][1] + sViewportPosition[2]*sViewportFrustumPlanes[2][2]);
-    sViewportFrustumPlanes[3][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[3][0] + sViewportPosition[1]*sViewportFrustumPlanes[3][1] + sViewportPosition[2]*sViewportFrustumPlanes[3][2]);
+    sViewportFrustumPlanes[0][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[0][0] + sViewportPosition[1]*sViewportFrustumPlanes[0][1] + sViewportPosition[2]*sViewportFrustumPlanes[0][2]) - cullPad;
+    sViewportFrustumPlanes[1][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[1][0] + sViewportPosition[1]*sViewportFrustumPlanes[1][1] + sViewportPosition[2]*sViewportFrustumPlanes[1][2]) - cullPad;
+    sViewportFrustumPlanes[2][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[2][0] + sViewportPosition[1]*sViewportFrustumPlanes[2][1] + sViewportPosition[2]*sViewportFrustumPlanes[2][2]) - cullPad;
+    sViewportFrustumPlanes[3][3] = -(sViewportPosition[0]*sViewportFrustumPlanes[3][0] + sViewportPosition[1]*sViewportFrustumPlanes[3][1] + sViewportPosition[2]*sViewportFrustumPlanes[3][2]) - cullPad;
 
     mlMtxIdent();
     mlMtxRotYaw(sViewportRotation[1]);
@@ -301,8 +333,10 @@ bool viewport_isBoundingBoxInFrustum(f32 min[3], f32 max[3]) {
         ((sViewportFrustumPlanes[0][0] * max[0] + sViewportFrustumPlanes[0][1] * min[1] + sViewportFrustumPlanes[0][2] * min[2] + sViewportFrustumPlanes[0][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[0][0] * max[0] + sViewportFrustumPlanes[0][1] * min[1] + sViewportFrustumPlanes[0][2] * max[2] + sViewportFrustumPlanes[0][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[0][0] * max[0] + sViewportFrustumPlanes[0][1] * max[1] + sViewportFrustumPlanes[0][2] * min[2] + sViewportFrustumPlanes[0][3]) >= 0.0f) &&
-        ((sViewportFrustumPlanes[0][0] * max[0] + sViewportFrustumPlanes[0][1] * max[1] + sViewportFrustumPlanes[0][2] * max[2] + sViewportFrustumPlanes[0][3]) >= 0.0f))
+        ((sViewportFrustumPlanes[0][0] * max[0] + sViewportFrustumPlanes[0][1] * max[1] + sViewportFrustumPlanes[0][2] * max[2] + sViewportFrustumPlanes[0][3]) >= 0.0f)) {
+        sPortCullRejects++;
         return false;
+    }
 
     if (((sViewportFrustumPlanes[1][0] * min[0] + sViewportFrustumPlanes[1][1] * min[1] + sViewportFrustumPlanes[1][2] * min[2] + sViewportFrustumPlanes[1][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[1][0] * min[0] + sViewportFrustumPlanes[1][1] * min[1] + sViewportFrustumPlanes[1][2] * max[2] + sViewportFrustumPlanes[1][3]) >= 0.0f) &&
@@ -311,8 +345,10 @@ bool viewport_isBoundingBoxInFrustum(f32 min[3], f32 max[3]) {
         ((sViewportFrustumPlanes[1][0] * max[0] + sViewportFrustumPlanes[1][1] * min[1] + sViewportFrustumPlanes[1][2] * min[2] + sViewportFrustumPlanes[1][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[1][0] * max[0] + sViewportFrustumPlanes[1][1] * min[1] + sViewportFrustumPlanes[1][2] * max[2] + sViewportFrustumPlanes[1][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[1][0] * max[0] + sViewportFrustumPlanes[1][1] * max[1] + sViewportFrustumPlanes[1][2] * min[2] + sViewportFrustumPlanes[1][3]) >= 0.0f) &&
-        ((sViewportFrustumPlanes[1][0] * max[0] + sViewportFrustumPlanes[1][1] * max[1] + sViewportFrustumPlanes[1][2] * max[2] + sViewportFrustumPlanes[1][3]) >= 0.0f))
+        ((sViewportFrustumPlanes[1][0] * max[0] + sViewportFrustumPlanes[1][1] * max[1] + sViewportFrustumPlanes[1][2] * max[2] + sViewportFrustumPlanes[1][3]) >= 0.0f)) {
+        sPortCullRejects++;
         return false;
+    }
 
     if (((sViewportFrustumPlanes[2][0] * min[0] + sViewportFrustumPlanes[2][1] * min[1] + sViewportFrustumPlanes[2][2] * min[2] + sViewportFrustumPlanes[2][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[2][0] * min[0] + sViewportFrustumPlanes[2][1] * min[1] + sViewportFrustumPlanes[2][2] * max[2] + sViewportFrustumPlanes[2][3]) >= 0.0f) &&
@@ -321,8 +357,10 @@ bool viewport_isBoundingBoxInFrustum(f32 min[3], f32 max[3]) {
         ((sViewportFrustumPlanes[2][0] * max[0] + sViewportFrustumPlanes[2][1] * min[1] + sViewportFrustumPlanes[2][2] * min[2] + sViewportFrustumPlanes[2][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[2][0] * max[0] + sViewportFrustumPlanes[2][1] * min[1] + sViewportFrustumPlanes[2][2] * max[2] + sViewportFrustumPlanes[2][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[2][0] * max[0] + sViewportFrustumPlanes[2][1] * max[1] + sViewportFrustumPlanes[2][2] * min[2] + sViewportFrustumPlanes[2][3]) >= 0.0f) &&
-        ((sViewportFrustumPlanes[2][0] * max[0] + sViewportFrustumPlanes[2][1] * max[1] + sViewportFrustumPlanes[2][2] * max[2] + sViewportFrustumPlanes[2][3]) >= 0.0f))
+        ((sViewportFrustumPlanes[2][0] * max[0] + sViewportFrustumPlanes[2][1] * max[1] + sViewportFrustumPlanes[2][2] * max[2] + sViewportFrustumPlanes[2][3]) >= 0.0f)) {
+        sPortCullRejects++;
         return false;
+    }
 
     if (((sViewportFrustumPlanes[3][0] * min[0] + sViewportFrustumPlanes[3][1] * min[1] + sViewportFrustumPlanes[3][2] * min[2] + sViewportFrustumPlanes[3][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[3][0] * min[0] + sViewportFrustumPlanes[3][1] * min[1] + sViewportFrustumPlanes[3][2] * max[2] + sViewportFrustumPlanes[3][3]) >= 0.0f) &&
@@ -331,8 +369,10 @@ bool viewport_isBoundingBoxInFrustum(f32 min[3], f32 max[3]) {
         ((sViewportFrustumPlanes[3][0] * max[0] + sViewportFrustumPlanes[3][1] * min[1] + sViewportFrustumPlanes[3][2] * min[2] + sViewportFrustumPlanes[3][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[3][0] * max[0] + sViewportFrustumPlanes[3][1] * min[1] + sViewportFrustumPlanes[3][2] * max[2] + sViewportFrustumPlanes[3][3]) >= 0.0f) &&
         ((sViewportFrustumPlanes[3][0] * max[0] + sViewportFrustumPlanes[3][1] * max[1] + sViewportFrustumPlanes[3][2] * min[2] + sViewportFrustumPlanes[3][3]) >= 0.0f) &&
-        ((sViewportFrustumPlanes[3][0] * max[0] + sViewportFrustumPlanes[3][1] * max[1] + sViewportFrustumPlanes[3][2] * max[2] + sViewportFrustumPlanes[3][3]) >= 0.0f))
+        ((sViewportFrustumPlanes[3][0] * max[0] + sViewportFrustumPlanes[3][1] * max[1] + sViewportFrustumPlanes[3][2] * max[2] + sViewportFrustumPlanes[3][3]) >= 0.0f)) {
+        sPortCullRejects++;
         return false;
+    }
 
     return true;
 }
@@ -399,6 +439,7 @@ bool viewport_func_8024DB50(f32 pos[3], f32 distance) {
 
     for(i = 0; i < 4; i++) {
         if(distance <= ml_vec3f_dot_product(delta, sViewportFrustumPlanes[i])) {
+            sPortCullRejects++;
             return false;
         }
     }
@@ -410,8 +451,10 @@ bool viewport_isPointOutsideFrustum_3f(f32 x, f32 y, f32 z) {
     if ((sViewportFrustumPlanes[0][0] * x + sViewportFrustumPlanes[0][1] * y + sViewportFrustumPlanes[0][2] * z + sViewportFrustumPlanes[0][3] <= 0.0f) &&
         (sViewportFrustumPlanes[1][0] * x + sViewportFrustumPlanes[1][1] * y + sViewportFrustumPlanes[1][2] * z + sViewportFrustumPlanes[1][3] <= 0.0f) &&
         (sViewportFrustumPlanes[2][0] * x + sViewportFrustumPlanes[2][1] * y + sViewportFrustumPlanes[2][2] * z + sViewportFrustumPlanes[2][3] <= 0.0f) &&
-        (sViewportFrustumPlanes[3][0] * x + sViewportFrustumPlanes[3][1] * y + sViewportFrustumPlanes[3][2] * z + sViewportFrustumPlanes[3][3] <= 0.0f))
+        (sViewportFrustumPlanes[3][0] * x + sViewportFrustumPlanes[3][1] * y + sViewportFrustumPlanes[3][2] * z + sViewportFrustumPlanes[3][3] <= 0.0f)) {
+        sPortCullRejects++;
         return true;
+    }
 
     return false;
 }

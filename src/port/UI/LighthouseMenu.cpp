@@ -130,6 +130,7 @@ void LighthouseMenu::InitElement() {
     AddMenuSettings();
     AddMenuEnhancements();
     AddMenuNetwork();
+    AddMenuVR();
     AddMenuDevTools();
     AddMenuRando();
 
@@ -170,7 +171,7 @@ void LighthouseMenu::InitElement() {
            },
             "Not Available on DirectX" } },
         { DISABLE_FOR_MATCH_REFRESH_RATE_ON,
-          { [](disabledInfo& info) -> bool { return CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 0); },
+          { [](disabledInfo& info) -> bool { return CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 1); },
             "Match Refresh Rate is Enabled" } },
         { DISABLE_FOR_ADVANCED_RESOLUTION_ON,
           { [](disabledInfo& info) -> bool { return CVarGetInteger(CVAR_PREFIX_ADVANCED_RESOLUTION ".Enabled", 0); },

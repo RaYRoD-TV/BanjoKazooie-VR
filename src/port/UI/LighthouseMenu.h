@@ -23,6 +23,7 @@ public:
     void AddMenuEnhancements();
     void AddMenuNetwork();
     void AddMenuDevTools();
+    void AddMenuVR(); // Enhancements -> VR (empty without ENABLE_VR)
     void AddMenuRando();
 
 private:

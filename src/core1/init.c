@@ -88,7 +88,13 @@ enum map_e getSpecialBootMap(void){
 
 // [port] Boot sequence: 0=Default (Rareware logo), 1=Authentic (same), 2=File Select
 enum map_e getDefaultBootMap(void){
-    int seq = port_getBootSequence();
+    int seq;
+    // [port] Headless VR verification (BK_VR_EYEDUMP): boot straight into Spiral Mountain so the
+    // per-eye render harness reaches a playable sky-bearing map with no menus to drive.
+    if (getenv("BK_VR_EYEDUMP") != NULL) {
+        return MAP_1_SM_SPIRAL_MOUNTAIN;
+    }
+    seq = port_getBootSequence();
     if (seq == 2) // BOOTSEQUENCE_FILESELECT
         return MAP_91_FILE_SELECT;
     return MAP_1F_CS_START_RAREWARE;

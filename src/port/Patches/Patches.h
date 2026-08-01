@@ -83,6 +83,17 @@ int port_spriteSizeCulled(float depth, float size, float baseThreshold, int disa
 float port_hudOrthoShift(float refX);
 void port_modelRenderResetTLUT(Gfx** gfx);
 
+// VR (src/port/vr/VrGame.cpp; every one is a no-op outside an active stereo session)
+
+// Stereo culling: viewport_update hands in the flat cull inputs, and in stereo they come back
+// re-aimed at the eyes' view direction, widened, and with a plane pad in world units.
+void port_vrCullAdjust(float* pitchDeg, float* yawDeg, float* frustumX, float* frustumY, float* padWorldUnits);
+// The sky pass registers its perspective Mtx so the eye replay can render it with zero separation.
+void port_vrMarkSkyPerspMtx(void* mtx);
+// Per-tick mouse-look delta (counts). peek = look without consuming; take = consume once.
+void port_vrMouseDelta_peek(float* dx, float* dy);
+void port_vrMouseDelta_take(float* dx, float* dy);
+
 // Mirror (MirrorPatches.cpp)
 
 int port_mirror_active(void);

@@ -67,7 +67,7 @@ void func_802BE6FC(float rotOut[3], float focus[3]); // look-at from the live po
 namespace {
 
 bool ModernSchemeActive() {
-    return CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO) == CONTROL_SCHEME_MODERN &&
+    return CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) == CONTROL_SCHEME_MODERN &&
            !port_freeLook_isEnabled();
 }
 
@@ -267,7 +267,7 @@ extern "C" int port_camera_suppressVanillaZoom(void) {
     if (IsDemoMode() || port_freeLook_isEnabled()) {
         return 0;
     }
-    int scheme = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO);
+    int scheme = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN);
     if (scheme == CONTROL_SCHEME_MODERN) {
         return 1;
     }

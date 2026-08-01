@@ -26,18 +26,21 @@ void coMusicPlayer_playMusic(enum comusic_e track_id, s32 volume);
 #define CVAR_SKIP_NOTEDOOR_DANCE CVAR_ENHANCEMENT("Cutscenes.SkipNoteDoorDance")
 #define CVAR_TRIGGER_FF_PARADE CVAR_DEVELOPER_TOOLS("TriggerFFParade")
 
+// The three Start-to-skip abilities default ON (they only arm the skip - nothing skips unless the
+// player actually presses Start). In VR especially, being locked in an unskippable intro is the
+// first thing every tester hits.
 void RegisterSkipBootLogos_Init() {
-    COND_VB_SHOULD(VB_PLAY_BOOT_LOGOS, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_BOOT_LOGOS, 0),
+    COND_VB_SHOULD(VB_PLAY_BOOT_LOGOS, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_BOOT_LOGOS, 1),
                    { *should = false; });
 }
 
 void RegisterSkipIntroCutscene_Init() {
-    COND_VB_SHOULD(VB_PLAY_INTRO_CUTSCENE, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_INTRO, 0),
+    COND_VB_SHOULD(VB_PLAY_INTRO_CUTSCENE, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_INTRO, 1),
                    { *should = false; });
 }
 
 void RegisterSkipMiscCutscenes_Init() {
-    COND_HOOK(OnMiscCutscenesCheck, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_MISC_CUTSCENES, 0),
+    COND_HOOK(OnMiscCutscenesCheck, EVENT_PRIORITY_NORMAL, CVarGetInteger(CVAR_SKIP_MISC_CUTSCENES, 1),
               [](IEvent* event) {
                   auto* ev = reinterpret_cast<OnMiscCutscenesCheck*>(event);
                   *ev->skipMiscCutscenes = true;

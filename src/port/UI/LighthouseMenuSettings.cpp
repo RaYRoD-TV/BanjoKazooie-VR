@@ -149,7 +149,7 @@ void LighthouseMenu::AddMenuSettings() {
                 info.activeDisables.push_back(DISABLE_FOR_BOOT_TO_DEBUG_WARP_SCREEN_ON);
         })
         .Options(ComboboxOptions()
-                     .DefaultIndex(BOOTSEQUENCE_DEFAULT)
+                     .DefaultIndex(BOOTSEQUENCE_FILESELECT)
                      .LabelPosition(LabelPositions::Far)
                      .ComponentAlignment(ComponentAlignments::Right)
                      .ComboMap(bootSequenceLabels)
@@ -404,7 +404,9 @@ void LighthouseMenu::AddMenuSettings() {
     AddWidget(path, "Match Refresh Rate", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_SETTING("MatchRefreshRate"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Matches interpolation value to the refresh rate of your display."));
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "Matches interpolation value to the refresh rate of your display. On by default - in VR "
+            "this is what keeps the game paced at the headset's own rate."));
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_VSYNC_ENABLED)
@@ -472,11 +474,11 @@ void LighthouseMenu::AddMenuSettings() {
         .RaceDisable(false)
         .PreFunc([](WidgetInfo& info) {
             if (sAppliedControlScheme < 0) {
-                sAppliedControlScheme = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO);
+                sAppliedControlScheme = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN);
             }
         })
         .Callback([](WidgetInfo& info) {
-            int32_t selected = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_RETRO);
+            int32_t selected = CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN);
             if (selected == sAppliedControlScheme) {
                 return;
             }

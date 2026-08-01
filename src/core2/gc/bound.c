@@ -31,6 +31,15 @@ void  _gcbound_draw(Gfx** dl, s32 a, s32 r, s32 g, s32 b){
     gSPWideTextureRectangle((*dl)++, -1024, -1024, 2048, 2048, 0, 0, 0, 0x100, 0x100);
 }
 
+// [port] Translucent panel plate for the VR options overlay: the same blend setup as the full-view
+// fade, drawn as a BOUNDED rectangle so the menu gets its own darkened panel while the world still
+// shows through it. x/y/w/h are screen pixels (the GBI rect takes 10.2 fixed point).
+void port_vrBoundRect(Gfx** dl, s32 x, s32 y, s32 w, s32 h, s32 r, s32 g, s32 b, s32 a){
+    gSPDisplayList((*dl)++, D_803688E8);
+    gDPSetPrimColor((*dl)++, 0, 0, r, g, b, a);
+    gSPWideTextureRectangle((*dl)++, x << 2, y << 2, (x + w) << 2, (y + h) << 2, 0, 0, 0, 0x100, 0x100);
+}
+
 void gcbound_draw(Gfx** dl){
     _gcbound_draw(dl, D_803688E0, _gcbound_red, _gcbound_green, _gcbound_blue);
 }

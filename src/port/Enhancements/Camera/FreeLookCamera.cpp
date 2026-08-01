@@ -140,8 +140,18 @@ void ExitOrbit() {
 
 } // namespace
 
+// [port] VR Diorama look damping (src/port/vr/VrGame.cpp); 1.0 everywhere else.
+extern "C" float port_vrDioramaLookScale(void);
+// [port] Mouse look (src/port/vr/VrGame.cpp): per-tick relative mouse counts, already gated on
+// capture/menus. peek looks without consuming (the enter trigger), take consumes (the owner).
+// In VR First Person the FP look base owns the mouse instead - port_vrFirstPerson_hidePlayer
+// doubles as that mode's active flag.
+extern "C" void port_vrMouseDelta_peek(float* dx, float* dy);
+extern "C" void port_vrMouseDelta_take(float* dx, float* dy);
+extern "C" int port_vrFirstPerson_hidePlayer(void);
+
 extern "C" int port_freeLook_isEnabled(void) {
-    return CVarGetInteger(CVAR_FREELOOK_ENABLED, 0) != 0;
+    return CVarGetInteger(CVAR_FREELOOK_ENABLED, 1) != 0;
 }
 
 extern "C" int port_freeLook_handle(void) {
@@ -180,6 +190,18 @@ extern "C" int port_freeLook_handle(void) {
         return 1;
     }
 
+    // A mouse swipe grabs the camera exactly like a stick push - the SRB2 / sm64coopdx model,
+    // where mouse look is simply always live. peek, not take: the update below still gets the
+    // same tick's motion, so the engaging swipe also turns the view.
+    if (!port_vrFirstPerson_hidePlayer()) {
+        float mdx, mdy;
+        port_vrMouseDelta_peek(&mdx, &mdy);
+        if (mdx > 2.0f || mdx < -2.0f || mdy > 2.0f || mdy < -2.0f) {
+            EnterOrbit();
+            return 1;
+        }
+    }
+
     return 0;
 }
 
@@ -188,14 +210,44 @@ extern "C" void port_freeLookCamera_update(void) {
 
     float stick[2];
     ReadStick(stick);
+    // Ease the stick itself in Diorama: a squared response gives fine control near centre so you can
+    // creep around the model, while a full push still gets you round in reasonable time.
+    if (port_vrDioramaLookScale() < 1.0f) {
+        stick[0] *= (stick[0] < 0.0f ? -stick[0] : stick[0]);
+        stick[1] *= (stick[1] < 0.0f ? -stick[1] : stick[1]);
+    }
 
     float yawSens = CVarGetFloat(CVAR_FREELOOK_YAW_SENS, 1.0f);
     float pitchSens = CVarGetFloat(CVAR_FREELOOK_PITCH_SENS, 1.0f);
+    // [port] Diorama is a tabletop you lean around, not a world you stand in: the whole level sits
+    // half a metre away, so camera motion sweeps a huge visual angle for a small stick push. Halving
+    // the rates there - and easing the stick response below - turns the orbit from a lurch into a
+    // slow turntable, which is what makes looking around a miniature comfortable.
+    const float dioramaEase = port_vrDioramaLookScale();
+    yawSens *= dioramaEase;
+    pitchSens *= dioramaEase;
     bool invertX = CVarGetInteger(CVAR_FREELOOK_INVERT_X, 0) != 0;
     bool invertY = CVarGetInteger(CVAR_FREELOOK_INVERT_Y, 0) != 0;
 
     D_8037DB70 = mlNormalizeAngle(D_8037DB70 + (invertX ? -stick[0] : stick[0]) * kYawSpeed * yawSens * dt);
     sPitch = clampf(sPitch + (invertY ? stick[1] : -stick[1]) * kPitchSpeed * pitchSens * dt, kMinPitch, kMaxPitch);
+
+    // Mouse look rides the same orbit through the same invert flags, but RAW: counts times a
+    // constant, applied the tick they happened. No dt (counts are already time-integrated - dt
+    // would tie sensitivity to framerate), no easing, no curve. That 1:1 response is the whole
+    // sm64coopdx / SRB2 feel. Mapped to stick space first (mouse right = stick right, mouse up =
+    // stick up), so the direction always matches what the stick already does.
+    if (!port_vrFirstPerson_hidePlayer()) {
+        float mdx, mdy;
+        port_vrMouseDelta_take(&mdx, &mdy);
+        if (mdx != 0.0f || mdy != 0.0f) {
+            const float mouseSens = CVarGetFloat("gVRMouseSens", 0.10f) * dioramaEase;
+            const float mx = mdx;
+            const float my = -mdy;
+            D_8037DB70 = mlNormalizeAngle(D_8037DB70 + (invertX ? -mx : mx) * mouseSens);
+            sPitch = clampf(sPitch + (invertY ? my : -my) * mouseSens, kMinPitch, kMaxPitch);
+        }
+    }
 
     float focus[3];
     float offset[3];

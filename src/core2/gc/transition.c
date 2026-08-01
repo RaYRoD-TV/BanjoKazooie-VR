@@ -242,6 +242,14 @@ void gctransition_defrag(void){
         s_current_transition.model_ptr = defrag_asset(s_current_transition.model_ptr);
 }
 
+// [port] VR stereo skips the transition MASK MODEL (the jiggy wipe): it is camera-space geometry
+// sized to exactly cover the flat 40-degree frustum, and a stereo eye pass has a much wider view -
+// the mask's edges hang in sight as giant black shapes over the world (reported as "skies are
+// black"). Actual map loads render on the flat panel (the stereo gate is off while the world draw
+// is disabled), where the wipe still plays exactly as authored. The gcbound fades stay - full-view
+// tints are correct in any projection.
+extern int port_vrStereoActive(void);
+
 void gctransition_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
     f32 vp_position[3];
     f32 vp_rotation[3];
@@ -292,6 +300,7 @@ void gctransition_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
 
     //complex animation (from animation bin file)
     if(s_current_transition.state == 1 || s_current_transition.state == 6){
+        if (!port_vrStereoActive())
         modelRender_draw(gfx, mtx, sp58, vp_rotation, 1.0f, 0, s_current_transition.model_ptr);
         if(s_current_transition.anctrl != NULL){
             gDPSetTextureFilter((*gfx)++, G_TF_BILERP);
@@ -312,6 +321,7 @@ void gctransition_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
             vp_rotation[2] = s_current_transition.rotation - 90.0f*percentage;
             scale = percentage*s_current_transition.transistion_info->scale + 0.1;
         }
+        if (!port_vrStereoActive())
         modelRender_draw(gfx, mtx, sp58, vp_rotation, scale, 0, s_current_transition.model_ptr);
     }
     else if(s_current_transition.state == TRANSITION_STATE_5_FADE_OUT){//L8030B9EC
@@ -332,7 +342,7 @@ void gctransition_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
                 scale = (1.0f - func_80257618(percentage))*s_current_transition.transistion_info->scale + 0.1;
                 break;
         }
-        if(!(s_current_transition.substate < 3) || s_current_transition.transistion_info->uid != 0x11){
+        if((!(s_current_transition.substate < 3) || s_current_transition.transistion_info->uid != 0x11) && !port_vrStereoActive()){
             modelRender_draw(gfx, mtx, sp58, vp_rotation, scale, 0, s_current_transition.model_ptr);
         }
         else{
@@ -456,7 +466,7 @@ void gctransition_update(void){
                     break;
                 case 2:
                     gsworld_setEnableDraw(0);
-                    port_freezeReadback(1); // [port] next draw is black — freeze so gFramebuffers keeps world for substate 3 capture
+                    port_freezeReadback(1); // [port] next draw is black - freeze so gFramebuffers keeps world for substate 3 capture
                     break;
                 case 3:
                     port_patchTransitionModel(s_current_transition.model_ptr);

@@ -293,7 +293,7 @@ int port_getBootSequence(void) {
     // vanilla cutscene/demo path.
     if (port_isRomhack())
         return BOOTSEQUENCE_FILESELECT;
-    return CVarGetInteger(CVAR_SETTING("BootSequence"), BOOTSEQUENCE_DEFAULT);
+    return CVarGetInteger(CVAR_SETTING("BootSequence"), BOOTSEQUENCE_FILESELECT);
 }
 
 float port_getRumbleScale(void) {

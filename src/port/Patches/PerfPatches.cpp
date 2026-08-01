@@ -20,6 +20,7 @@ extern void func_80256E24(f32 dst[3], f32 theta, f32 phi, f32 x, f32 y, f32 z);
 extern void ml_vec3f_normalize(f32 vec[3]);
 extern void viewport_getPosition_vec3f(f32 dst[3]);
 extern void viewport_getRotation_vec3f(f32 dst[3]);
+extern int port_vrStereoActive(void); // VrGame.cpp - stereo eye rendering this frame
 }
 
 static const f32 kFrustumZX = 45.168514251708984f; // must match viewport.c
@@ -237,11 +238,16 @@ static void RegisterDrawDistCull_Init() {
     COND_VB_SHOULD(VB_DRAWDIST_BOX_CULL, EVENT_PRIORITY_NORMAL, true, {
         f32* boxMin = va_arg(args, f32*);
         f32* boxMax = va_arg(args, f32*);
-        if (sPadPlanesDirty) {
-            RebuildPaddedPlanes();
-        }
-        if (PaddedBoxCulled(boxMin, boxMax)) {
-            *should = false;
+        // VR stereo: these padded planes still face the game camera and know nothing about the
+        // head, so their cull pops geometry the eyes can plainly see. The main frustum is already
+        // near-hemispheric in stereo (port_vrCullAdjust), so skip the extra box cull entirely.
+        if (!port_vrStereoActive()) {
+            if (sPadPlanesDirty) {
+                RebuildPaddedPlanes();
+            }
+            if (PaddedBoxCulled(boxMin, boxMax)) {
+                *should = false;
+            }
         }
     });
 }

@@ -8,6 +8,13 @@
 
 #include "core2/gc/zoombox.h"
 
+// [port] VR stereo pause keeps the world rendering live behind the menu instead of freezing a 2D
+// snapshot (src/port/vr/VrGame.cpp); 0 outside VR stereo.
+extern int port_vrPauseKeepsWorldLive(void);
+// [port] The native VR options overlay (src/port/vr/VrNativeMenu.cpp). Takes the DL cursor for its
+// dim plate; the text rides the deferred print buffer.
+extern void port_vrNativeMenu_push(void* gfx);
+
 #ifndef MIN
 #define MIN(s, t) (((s) < t)?(s):(t))
 #endif
@@ -928,7 +935,7 @@ void gcpausemenu_setNextPage(s32 increment) {
     D_80383010.page = D_80383010.selection;
     do {
         D_80383010.page += increment;
-        // [port] Clamp to valid range — on N64 this never overflowed because
+        // [port] Clamp to valid range - on N64 this never overflowed because
         // multiple levels always had scores. Direct-boot can leave only one.
         if (D_80383010.page < 0 || D_80383010.page > 12) {
             D_80383010.page = D_80383010.selection;
@@ -1429,8 +1436,13 @@ void gcpausemenu_drawSprite(Gfx **gdl, Mtx **mptr, Vtx **vptr, BKSprite *sprite,
 
 // [port] Returns true on the frame(s) where the pause menu is capturing
 // the background snapshot, so the caller can skip HUD drawing.
+// In VR stereo there IS no capture (the world stays live behind the menu - see below), so this must
+// report false or the print-buffer flush stays suppressed and the pause menu draws with no text.
 static int D_8036C620 = 1;
 bool gcpausemenu_isCapturing(void) {
+    if (port_vrPauseKeepsWorldLive()) {
+        return false;
+    }
     return (getGameMode() == GAME_MODE_4_PAUSED && D_8036C620 != 0);
 }
 
@@ -1452,6 +1464,18 @@ void gcpausemenu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
         return;
     }
 
+    // [port] VR stereo pause: skip the whole snapshot machinery and keep the WORLD RENDERING LIVE
+    // behind the menu. The flat game freezes a 2D screenshot as the background (and disables the
+    // world pass), but a flat plate can't be the background of a stereo scene - the menu would float
+    // over a void. The world is paused anyway (game_is_frozen), so re-rendering it each frame just
+    // gives the menu its background back, in real depth. If the headset drops mid-pause the flat
+    // capture path re-arms on the next frame automatically.
+    if (port_vrPauseKeepsWorldLive()) {
+        if (!D_8036C620) {
+            gsworld_setEnableDraw(1); // came in from a flat capture: give the world back
+        }
+        D_8036C620 = 1; // stay armed so leaving VR (or unpausing) behaves exactly like stock
+    } else
     if (D_8036C620 == 1) {
         func_8033B61C();
         D_8036C620 = 2;
@@ -1472,7 +1496,16 @@ void gcpausemenu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
         func_80315110(gfx, mtx, vtx);
     }
 
-    // Only applies to main menu — in totals, selection is a page index (0-12),
+    // [port] While the VR options overlay is up it owns the screen: none of the pause menu's own
+    // visuals draw (zoomboxes, portraits, item icons, sprites, SNS eggs) - their models and their
+    // deferred text were interleaving with the overlay rows into an unreadable pile. The pause
+    // STATE machine above still runs; the visuals return the frame the overlay closes.
+    if (port_vrNativeMenu_isOpen()) {
+        port_vrNativeMenu_push(gfx);
+        return;
+    }
+
+    // Only applies to main menu - in totals, selection is a page index (0-12),
     // not a zoombox index (0-3).
     if (D_80383010.menu == PAUSE_MENU_0_MAIN) {
         bool should = EventSystem_Should(VB_PAUSE_MENU_PORTRAIT_DEPTH, true);
@@ -1646,6 +1679,10 @@ void gcpausemenu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
     if (D_80383010.state == PAUSE_STATE_14_EXIT_GAME) {
         func_802DC604(gfx, mtx, vtx);
     }
+
+    // [port] VR options overlay (right trigger from pause): pushed LAST so its rows land after the
+    // zoombox text in the deferred print buffer and draw on top. No-op outside a VR session.
+    port_vrNativeMenu_push(gfx);
 }
 
 void gcpausemenu_80314AC8(int arg0) {

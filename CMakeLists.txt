@@ -102,7 +102,9 @@ include(cmake/automate-vcpkg.cmake)
 set(VCPKG_TRIPLET x64-windows-static)
 set(VCPKG_TARGET_TRIPLET x64-windows-static)
 vcpkg_bootstrap()
-vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis)
+# openxr-loader: the VR layer binds OpenXR to the OpenGL/WGL context. Linked static, so a VR build
+# ships no extra DLLs and the same exe still runs flat when no headset answers the startup probe.
+vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis openxr-loader)
 
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -369,6 +371,20 @@ endif()
 add_subdirectory(libultraship ${CMAKE_CURRENT_SOURCE_DIR}/libultraship)
 add_dependencies(${PROJECT_NAME} libultraship)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+
+# VR (OpenXR). Windows-only: the session binds to the WGL/OpenGL context, so VR force-selects the
+# OpenGL backend at startup. Everything is gated on ENABLE_VR, and without a headset the same exe
+# runs the stock flat game (the startup probe just answers "no HMD").
+option(ENABLE_VR "Build the OpenXR VR layer (Windows/OpenGL only)" ON)
+if (ENABLE_VR AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    find_package(OpenXR CONFIG REQUIRED)
+    find_package(GLEW REQUIRED)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VR=1)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenXR::openxr_loader GLEW::GLEW)
+    # The Fast3D VR hooks live inside libultraship and call the game-side vr_* helpers, so the
+    # library needs the same gate and the OpenGL headers.
+    target_compile_definitions(libultraship PRIVATE ENABLE_VR=1)
+endif()
 
 # /fsanitize=address is incompatible with /ZI (Edit and Continue), downgrade to /Zi.
 if(ENABLE_ASAN AND MSVC)

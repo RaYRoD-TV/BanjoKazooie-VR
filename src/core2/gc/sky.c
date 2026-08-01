@@ -4,6 +4,7 @@
 #include "functions.h"
 #include "variables.h"
 #include "port/Romhack/RomhackConfig.h"
+#include "port/Patches/Patches.h"
 
 extern void func_8034C6DC(BKModel *arg0);
 
@@ -97,6 +98,9 @@ void sky_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
         if (EventSystem_Should(VB_SKY_DRAW_BACKDROP_RECT, true)) {
             drawRectangle2D(gfx, 0, 0, (f32) gFramebufferWidth, (f32) gFramebufferHeight, 0, 0, 0);
         }
+        // [port] VR: the sky draws AT the camera, so the stereo eye replay renders exactly this
+        // perspective load with zero eye separation - register its Mtx before it is consumed.
+        port_vrMarkSkyPerspMtx((void*)*mtx);
         viewport_setRenderViewportAndPerspectiveMatrix(gfx, mtx);
         viewport_getPosition_vec3f(position);
         for (i = 0; i < 3; i++) {

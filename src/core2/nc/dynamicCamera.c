@@ -6,6 +6,13 @@
 #include "port/Enhancements/Camera/FreeLookCamera.h"
 #include "port/Controller/ModernCamera.h"
 
+// [port] VR first-person camera override (src/port/vr/VrGame.cpp); no-op outside VR First Person.
+extern void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]);
+// [port] VR chase-camera distance: scales the FINAL camera position about the focus point.
+// Hooking the orbit-distance getter instead only reached the couple of camera states that consult
+// it, so the knob barely moved - this is downstream of every state and of collision.
+extern void port_vrCamDist_apply(f32 position[3]);
+
 
 extern bool func_80245314(f32[3], f32[3], f32, f32, u32);
 extern BKCollisionTriangle *func_80244D94(f32[3], f32[3], f32[3], u32, f32);
@@ -396,6 +403,10 @@ void ncDynamicCamera_update(void){
     if(dynamicCameraInFirstPerson){
         ncba1p_getPositionAndRotation(position, rotation);
     }
+    // [port] VR immersive first person: the camera sits AT Banjo's eyes (smoothed to his facing)
+    // instead of the chase position. No-op unless the VR view mode is First Person.
+    port_vrCamDist_apply(position);
+    port_vrFirstPerson_override(position, rotation);
     viewport_setPosition_vec3f(position);
     viewport_setRotation_vec3f(rotation);
 }

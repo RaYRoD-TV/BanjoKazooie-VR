@@ -11,6 +11,9 @@
 
 #include <fast/interpreter.h>
 #include <libultraship.h>
+#if defined(ENABLE_VR) && defined(_WIN32)
+#include "vr/vr.h"
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #include <timeapi.h>
@@ -278,6 +281,25 @@ void push_frame() {
 int SDL_main(int argc, char* argv[]) {
 #ifdef _WIN32
     timeBeginPeriod(1);
+#endif
+
+#if defined(ENABLE_VR) && defined(_WIN32)
+    // VR enable decision, before the engine is created: --vr forces VR on, --novr forces it off, and
+    // with neither flag a throwaway OpenXR instance probes for a connected HMD and auto-enables. One
+    // download, one exe: VR when a headset answers, the stock flat game when it doesn't.
+    {
+        bool forceVr = false, forceNoVr = false;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--vr") == 0) {
+                forceVr = true;
+            } else if (strcmp(argv[i], "--novr") == 0) {
+                forceNoVr = true;
+            }
+        }
+        if (forceVr || (!forceNoVr && vr_headset_present())) {
+            vr_request_enable();
+        }
+    }
 #endif
 
     // Anchor relative paths to the executable instead of cwd

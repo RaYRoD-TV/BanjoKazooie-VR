@@ -12,6 +12,9 @@
 
 #include "core2/snackerctl.h"
 
+// [port] VR first person hides the player model (src/port/vr/VrGame.cpp); 0 outside VR First Person.
+extern int port_vrFirstPerson_hidePlayer(void);
+
 extern bool player_isInHorizontalRadius(f32[3], f32);
 extern bool player_isInVerticalRange(f32[3], f32);
 extern void func_80295A8C(void);
@@ -235,6 +238,12 @@ void func_8028E668(f32 arg0[3], f32 arg1, f32 arg2, f32 arg3) {
 
 
 void player_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
+    // [port] VR immersive first person: the eye sits inside Banjo's head, so the bear is not drawn.
+    // A hard gate here (rather than owning baModelIsVisible) can't fight the other writers of that
+    // flag (dronevanish, loadzone, jiggy dances, baModel_reset).
+    if (port_vrFirstPerson_hidePlayer()) {
+        return;
+    }
     if (D_8037BFB8) {
         eggShatter_draw(gfx, mtx, vtx);
         baModel_draw(gfx, mtx, vtx);

@@ -82,7 +82,7 @@ void LighthouseMenu::AddMenuEnhancements() {
                 info.activeDisables.push_back(DISABLE_FOR_ROMHACK);
             }
         })
-        .Options(CheckboxOptions().Tooltip("Press Start to skip the Rareware and Nintendo logos on boot."));
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip("Press Start to skip the Rareware and Nintendo logos on boot."));
 
     AddWidget(path, "Allow Start to Skip Intro Cutscenes", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Cutscenes.StartSkipIntro"))
@@ -92,7 +92,7 @@ void LighthouseMenu::AddMenuEnhancements() {
                 info.activeDisables.push_back(DISABLE_FOR_ROMHACK);
             }
         })
-        .Options(CheckboxOptions().Tooltip("Press Start to Skip Intro Cutscenes."));
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip("Press Start to Skip Intro Cutscenes."));
 
     AddWidget(path, "Allow Start to Skip Misc Cutscenes", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Cutscenes.SkipMiscCutscenes"))
@@ -102,7 +102,7 @@ void LighthouseMenu::AddMenuEnhancements() {
                 info.activeDisables.push_back(DISABLE_FOR_ROMHACK);
             }
         })
-        .Options(CheckboxOptions().Tooltip("Press Start to skip the Gruntilda's Lair and Game Over cutscenes."));
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip("Press Start to skip the Gruntilda's Lair and Game Over cutscenes."));
 
     AddWidget(path, "Skip Jiggy Dance", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Cutscenes.SkipJiggyDance"))
@@ -188,7 +188,7 @@ void LighthouseMenu::AddMenuEnhancements() {
     AddWidget(path, "Free Look (Right Stick)", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Camera.FreeLook.Enabled"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip(
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
             "Use the right stick to freely orbit the camera around Banjo (yaw and pitch). "
             "The camera holds its angle until you use a C-button camera control, which returns "
             "to the normal camera. While enabled, the right stick no longer acts as the C-buttons."));
