@@ -115,6 +115,14 @@ void LighthouseMenu::AddMenuVR() {
         .Options(CheckboxOptions().DefaultValue(false).Tooltip(
             "Reverses left/right stick look in First Person."));
 
+    AddWidget(path, "Swim Follow", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRFpSwimFollow")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "In water, the First Person view turns with Banjo while you steer with the left "
+            "stick - so the thumb holding the swim buttons never has to leave them. Only ever "
+            "moves while you are commanding the turn; on land the view base stays put."));
+
     AddWidget(path, "Head-Directed Movement", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpHeadMove")
         .RaceDisable(false)

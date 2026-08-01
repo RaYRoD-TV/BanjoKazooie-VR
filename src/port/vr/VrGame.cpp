@@ -23,7 +23,9 @@ enum map_e gsworld_getMap(void);
 s32 gsworld_getEnableDraw(void);
 void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot pos + per-transform head height)
 void player_getRotation(f32 dst[3]);
+bool player_inWater(void); // swimming or diving - the swim-follow gate
 void controller_getRightStick(s32 controller_index, f32 dst[2]); // merged pad right stick, normalized +-1
+void controller_getJoystick(s32 controller_index, f32 dst[2]);   // merged pad LEFT stick, normalized +-1
 f32 time_getDelta(void);
 // The game's own camera state - the anti-clip guard reads its collision result rather than
 // duplicating collision code.
@@ -448,6 +450,33 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         sYaw = playerRot[1] + 180.0f;
         sPitch = 0.0f;
         sBaseValid = true;
+    }
+
+    // SWIM FOLLOW: underwater the game steers Banjo like a vehicle on the LEFT stick, so a
+    // world-stable base means chasing his heading with the right stick - with the same thumb
+    // that holds the swim buttons (the first wild feature request). While IN WATER and ACTIVELY
+    // steering, the base follows his yaw change 1:1. That stays inside the comfort law: the view
+    // only ever moves while the player is commanding the turn themselves (the same
+    // only-while-input rule as stick look, and how the sm64 port's first person follows Mario),
+    // dead-stops with the stick, and never follows on land - the world-stable base is untouched
+    // everywhere else.
+    {
+        static float sPrevPlayerYaw = 0.0f;
+        static bool sPrevYawValid = false;
+        f32 pr[3];
+        player_getRotation(pr);
+        float dyaw = fmodf(pr[1] - sPrevPlayerYaw + 540.0f, 360.0f) - 180.0f;
+        if (sPrevYawValid && player_inWater() && CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
+            f32 move[2];
+            controller_getJoystick(0, move);
+            const float mag = sqrtf(move[0] * move[0] + move[1] * move[1]);
+            // The delta cap keeps a load or drone-cam jump from reading as a 180-degree "turn".
+            if (mag > 0.2f && dyaw > -15.0f && dyaw < 15.0f) {
+                sYaw += dyaw;
+            }
+        }
+        sPrevPlayerYaw = pr[1];
+        sPrevYawValid = true;
     }
 
     f32 rs[2];
