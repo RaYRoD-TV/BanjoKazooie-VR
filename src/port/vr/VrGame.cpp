@@ -593,6 +593,18 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     if (vb & VR_BTN_LGRIP)    { btn |= R_TRIG; }
     if (vb & VR_BTN_MENU)     { btn |= START_BUTTON; }
 
+    // Per axis the stronger source wins BY MAGNITUDE. The old form compared signed values, so an
+    // idle VR stick (exactly 0) - or a whisper of negative drift - "won" against any POSITIVE
+    // gamepad deflection and zeroed it: on an Xbox pad only LEFT and DOWN survived the merge,
+    // which was the first wild bug report of the release. Magnitude is what "stronger" meant.
+    auto mergeAxis = [](int8_t vr, int8_t& padAxis) {
+        const int a = (vr < 0) ? -(int)vr : (int)vr;
+        const int b = (padAxis < 0) ? -(int)padAxis : (int)padAxis;
+        if (a > b) {
+            padAxis = vr;
+        }
+    };
+
     // Right stick -> camera. The Modern control scheme (the default) reads the analog right stick
     // directly for its orbit camera, so feed the pad's right-stick fields (stronger source wins,
     // same rule as the left stick). Retro scheme has no analog camera - there the stick synthesizes
@@ -604,14 +616,8 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
         // not the 80 the LEFT stick uses. Writing 80 here meant a full VR deflection arrived as
         // 0.63, and the look curve then squared that down to about a third of the intended speed.
         // This one mismatch was the whole "stick look is very slow" report.
-        const int8_t rx = (int8_t)(rs[0] * 127.0f);
-        const int8_t ry = (int8_t)(rs[1] * 127.0f);
-        if (rx > 0 ? (rx > pad->right_stick_x) : (rx < pad->right_stick_x)) {
-            pad->right_stick_x = rx;
-        }
-        if (ry > 0 ? (ry > pad->right_stick_y) : (ry < pad->right_stick_y)) {
-            pad->right_stick_y = ry;
-        }
+        mergeAxis((int8_t)(rs[0] * 127.0f), pad->right_stick_x);
+        mergeAxis((int8_t)(rs[1] * 127.0f), pad->right_stick_y);
     }
     if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) != CONTROL_SCHEME_MODERN) {
         const float kCDeadZone = 0.5f;
@@ -623,18 +629,12 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
 
     pad->button |= btn;
 
-    // Left stick -> analog stick. Per axis the STRONGER source wins, so a gamepad or keyboard keeps
-    // working alongside the controllers instead of fighting them for the same axis.
+    // Left stick -> analog stick. Same magnitude merge, so a gamepad or keyboard keeps working
+    // alongside the controllers instead of fighting them for the same axis.
     float ls[2];
     vr_controller_stick(0, ls);
-    const int8_t vx = (int8_t)(ls[0] * 80.0f);
-    const int8_t vy = (int8_t)(ls[1] * 80.0f);
-    if (vx > 0 ? (vx > pad->stick_x) : (vx < pad->stick_x)) {
-        pad->stick_x = vx;
-    }
-    if (vy > 0 ? (vy > pad->stick_y) : (vy < pad->stick_y)) {
-        pad->stick_y = vy;
-    }
+    mergeAxis((int8_t)(ls[0] * 80.0f), pad->stick_x);
+    mergeAxis((int8_t)(ls[1] * 80.0f), pad->stick_y);
 }
 
 // Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU
