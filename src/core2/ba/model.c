@@ -336,6 +336,17 @@ void baModel_80292284(f32 arg0[3], s32 arg1){
     }
 }
 
+// [port] Zero the drawn ref-point array so every accessor takes its designed not-drawn fallback
+// (live player position + analytic offsets). VR first person skips player_draw to hide the bear,
+// and the skipped draw is also what refreshes these points - left alone they stay frozen at the
+// spot where first person engaged, and everything that reads a body position (enemy proximity,
+// attack hitboxes, NPC talk triggers, pickups) keeps testing against that ghost.
+void baModel_clearRefPoints(void){
+    if(D_80363780){
+        vec3fArray_clearValues(D_80363780);
+    }
+}
+
 void baModel_getPosition(f32* dst){
     f32 tmp1[3];
     f32 tmp2[3];

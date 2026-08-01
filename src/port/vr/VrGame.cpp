@@ -26,6 +26,8 @@ void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
 void controller_getRightStick(s32 controller_index, f32 dst[2]); // merged pad right stick, normalized +-1
 void controller_getJoystick(s32 controller_index, f32 dst[2]);   // merged pad LEFT stick, normalized +-1
+void yaw_set(f32 yaw);      // the player's actual body yaw (degrees)
+void yaw_setIdeal(f32 yaw); // the yaw the body springs toward - set both or the spring pulls back
 f32 time_getDelta(void);
 // The game's own camera state - the anti-clip guard reads its collision result rather than
 // duplicating collision code.
@@ -418,13 +420,30 @@ extern "C" int port_vrHudHidden(void) {
 //     reads as self-motion, not vection.
 //   - The base NEVER auto-recenters. Brief gate flickers (loading zones, dialogue) keep the base;
 //     only leaving First Person for a real stretch (~1 s) re-captures from Banjo's facing.
+// The First Person look base lives at file scope so the aim-alignment export below can read it.
+static float sYaw = 0.0f;
+static float sPitch = 0.0f;
+static float sYawRate = 0.0f;   // eased angular velocity (deg/s) - see the comfort shaping below
+static float sPitchRate = 0.0f;
+static bool sBaseValid = false;
+static int sInactiveFrames = 0;
+
+// Face Banjo where the player is LOOKING: body yaw = view yaw (base + head) flipped through the
+// model's 180-degree camera convention. The state machine calls this as an aim-driven state
+// begins (barge, claw, peck, eggs), so an attack launched from inside his head goes where the
+// eyes point instead of wherever the body last walked. Setting actual AND ideal yaw together
+// keeps the yaw spring from pulling him back.
+extern "C" void port_vrFpFaceViewYaw(void) {
+    if (!VrFp_Active() || !sBaseValid) {
+        return;
+    }
+    const float viewYaw = sYaw - vr_head_yaw_rad() * 57.29577951308232f;
+    const float bodyYaw = fmodf(viewYaw - 180.0f + 720.0f, 360.0f);
+    yaw_set(bodyYaw);
+    yaw_setIdeal(bodyYaw);
+}
+
 extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
-    static float sYaw = 0.0f;
-    static float sPitch = 0.0f;
-    static float sYawRate = 0.0f;   // eased angular velocity (deg/s) - see the comfort shaping below
-    static float sPitchRate = 0.0f;
-    static bool sBaseValid = false;
-    static int sInactiveFrames = 0;
     if (!VrFp_Active()) {
         sYawRate = 0.0f;
         sPitchRate = 0.0f;
@@ -892,6 +911,8 @@ void port_vrMouseDelta_take(float* dx, float* dy) {
 }
 int port_vrImGuiMenuVisible(void) {
     return 0;
+}
+void port_vrFpFaceViewYaw(void) {
 }
 }
 

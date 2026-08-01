@@ -242,6 +242,13 @@ void player_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
     // A hard gate here (rather than owning baModelIsVisible) can't fight the other writers of that
     // flag (dronevanish, loadzone, jiggy dances, baModel_reset).
     if (port_vrFirstPerson_hidePlayer()) {
+        // The skipped draw is also what refreshes the model ref points (beak, hands, feet world
+        // positions), and STALE points are worse than none: every body-position consumer - enemy
+        // hits, attack hitboxes, Bottles' talk trigger, pickups - kept interacting with a ghost
+        // frozen where first person engaged. Cleared, the accessors fall back to live
+        // player-position offsets and the world touches the real bear again.
+        extern void baModel_clearRefPoints(void);
+        baModel_clearRefPoints();
         return;
     }
     if (D_8037BFB8) {
