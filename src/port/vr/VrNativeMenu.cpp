@@ -20,6 +20,7 @@
 
 extern "C" {
 #include "enums.h" // GAME_MODE_4_PAUSED
+#include <libultraship/libultra/controller.h> // N64 pad button masks - the gamepad drive path
 void print_dialog(int x, int y, unsigned char* string);
 void print_bold_overlapping(int x, int y, float scale, unsigned char* string);
 void text_setNormalTextColor(int r, int g, int b);
@@ -154,6 +155,22 @@ static int sPage = 0;
 static int sSel = 0;
 static int sRepeat = 0;
 static unsigned sPrevVb = 0;
+static unsigned sPrevPadBtn = 0;
+
+// The merged N64 pad, handed over by VrGame_MergePad BEFORE the overlay zeroes it. This is what
+// makes the overlay drivable from a plain gamepad: the first wild user played with an Xbox pad in
+// the headset, pressed pause + right trigger, and nothing happened - every read below was
+// motion-controller state. Now both sources drive the same rows: pause + R opens, stick
+// navigates, left/right adjusts, A activates, B (or R again) closes, Z flips pages.
+static unsigned sPadBtn = 0;
+static int sPadStickX = 0;
+static int sPadStickY = 0;
+
+extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY) {
+    sPadBtn = button;
+    sPadStickX = stickX;
+    sPadStickY = stickY;
+}
 
 static void RowResume(void) {
     sOpen = false;
@@ -207,6 +224,7 @@ extern "C" int port_vrImGuiMenuVisible(void); // VrGame.cpp
 
 static void MenuInput(void) {
     const unsigned vb = vr_controller_buttons();
+    const unsigned pb = sPadBtn;
     // One press, one consumer (the round-3 law): while the port (ImGui) menu is up, the right
     // trigger is ITS pointer click - the same press must not also toggle this overlay underneath,
     // dimming the pause backdrop. Tracking the held state through the gate means the press that
@@ -214,18 +232,23 @@ static void MenuInput(void) {
     if (port_vrImGuiMenuVisible()) {
         sOpen = false;
         sPrevVb = vb;
+        sPrevPadBtn = pb;
         return;
     }
     const unsigned pressed = vb & ~sPrevVb;
+    const unsigned padPressed = pb & ~sPrevPadBtn;
     sPrevVb = vb;
+    sPrevPadBtn = pb;
 
     float ls[2];
     vr_controller_stick(0, ls);
 
     if (!sOpen) {
-        // Opens from PAUSE with the right trigger. The pad merge suppresses trigger-sourced game
-        // buttons for the whole pause, so this press reaches ONLY here.
-        if (pressed & VR_BTN_RTRIGGER) {
+        // Opens from PAUSE with the right trigger - motion controller RT, or the pad's R button
+        // for gamepad players (R does nothing in the game's own pause menu, so the press has
+        // exactly one consumer). The VR merge suppresses trigger-sourced game buttons for the
+        // whole pause on the controller side.
+        if ((pressed & VR_BTN_RTRIGGER) || (padPressed & R_TRIG)) {
             sOpen = true;
             sPage = 0;
             sSel = 0;
@@ -235,19 +258,19 @@ static void MenuInput(void) {
         return;
     }
 
-    // Close: B or right trigger again.
-    if (pressed & (VR_BTN_B | VR_BTN_RTRIGGER)) {
+    // Close: B or right trigger / pad R again.
+    if ((pressed & (VR_BTN_B | VR_BTN_RTRIGGER)) || (padPressed & (B_BUTTON | R_TRIG))) {
         sOpen = false;
         return;
     }
 
     // Grips flip pages - a whole-hand gesture for a whole-page move, and a control the runtime has
-    // no claim on. Selection resets to the top of the new page.
-    if (pressed & VR_BTN_RGRIP) {
+    // no claim on. On a gamepad, Z cycles forward and L backward. Selection resets to the top.
+    if ((pressed & VR_BTN_RGRIP) || (padPressed & Z_TRIG)) {
         sPage = (sPage + 1) % kPageCount;
         sSel = 0;
         vr_controller_rumble(0.25f, 0.03f);
-    } else if (pressed & VR_BTN_LGRIP) {
+    } else if ((pressed & VR_BTN_LGRIP) || (padPressed & L_TRIG)) {
         sPage = (sPage + kPageCount - 1) % kPageCount;
         sSel = 0;
         vr_controller_rumble(0.25f, 0.03f);
@@ -258,10 +281,12 @@ static void MenuInput(void) {
     if (sRepeat > 0) {
         sRepeat--;
     }
-    const bool up = ls[1] > 0.55f;
-    const bool down = ls[1] < -0.55f;
-    const bool left = ls[0] < -0.55f;
-    const bool right = ls[0] > 0.55f;
+    // Whichever stick is deflected drives - the VR thumbstick is -1..1, the pad stick is the
+    // N64's -80..80, so 44 is the same 0.55 threshold in pad units.
+    const bool up = ls[1] > 0.55f || sPadStickY > 44;
+    const bool down = ls[1] < -0.55f || sPadStickY < -44;
+    const bool left = ls[0] < -0.55f || sPadStickX < -44;
+    const bool right = ls[0] > 0.55f || sPadStickX > 44;
 
     if ((up || down) && sRepeat == 0) {
         sSel = (sSel + (down ? 1 : page->rowCount - 1)) % page->rowCount;
@@ -273,7 +298,7 @@ static void MenuInput(void) {
         sRepeat = 2; // quick re-arm on release
     }
 
-    if (pressed & VR_BTN_A) {
+    if ((pressed & VR_BTN_A) || (padPressed & A_BUTTON)) {
         const VrRow* row = &page->rows[sSel];
         if (row->kind == ROW_ACTION) {
             row->action();
@@ -419,7 +444,7 @@ extern "C" void port_vrNativeMenu_push(void* gfx) {
 
     // Footer: the page control stays on screen, so the other pages are never a secret.
     text_setNormalTextColor(0xB4, 0xB4, 0xB4);
-    print_dialog(x0, 199, (unsigned char*)"GRIPS TURN PAGE. B CLOSES.");
+    print_dialog(x0, 199, (unsigned char*)"GRIPS OR Z TURN PAGE. B CLOSES.");
     text_setNormalTextColor(0xFF, 0xFF, 0xFF);
 }
 
@@ -430,6 +455,11 @@ extern "C" int port_vrNativeMenu_isOpen(void) {
 }
 extern "C" void port_vrNativeMenu_push(void* gfx) {
     (void)gfx;
+}
+extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY) {
+    (void)button;
+    (void)stickX;
+    (void)stickY;
 }
 
 #endif

@@ -556,10 +556,17 @@ extern "C" int port_vrImGuiMenuVisible(void) {
     return VrImGuiMenuVisible() ? 1 : 0;
 }
 
+extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY);
+
 extern "C" void VrGame_MergePad(OSContPad* pad) {
     if (pad == NULL) {
         return;
     }
+    // Hand the overlay the pad state FIRST, so a plain gamepad can open and drive it - the first
+    // wild user played with an Xbox pad in the headset and pause + right trigger did nothing,
+    // because every overlay read was motion-controller state. Fed before the zeroing below, or
+    // the overlay would starve itself the moment it opens.
+    port_vrNativeMenu_feedPad(pad->button, pad->stick_x, pad->stick_y);
     // While the native VR options overlay is up it owns EVERY input source: the whole pad zeroes
     // (SDL pads included), so neither the paused game nor its pause menu sees a single flick.
     if (port_vrNativeMenu_isOpen()) {
