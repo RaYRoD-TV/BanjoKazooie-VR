@@ -224,6 +224,11 @@ void vr_recenter(void);
 // headset's frame rate inside, and ignored outside first person.
 void vr_set_flip_angle(float radians);
 
+// Tell the eye builder whether VR First Person is actually driving the camera this tick. While the
+// GAME owns it (dialogue, scripted reveals), the First Person framing offsets fade out so an
+// authored shot is shown as authored instead of being pushed a metre into the nearest wall.
+void vr_set_fp_framing(int on);
+
 void vr_shutdown(void);
 
 // --- headless verification seam ------------------------------------------------

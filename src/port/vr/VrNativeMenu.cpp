@@ -133,6 +133,9 @@ static const VrRow kRowsViewFp[] = {
     { "STEREO",      ROW_FLOAT, "gVRStereo",               0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
     { "EYE RAISE",   ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
     { "EYE FORWARD", ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
+    // FLIP CAM also lives on the FIRST PERSON page, but this is the page a first-person player
+    // actually opens - a toggle nobody can find reads as a toggle that was never added.
+    { "FLIP CAM",    ROW_INT01, "gVRFpFlipCam",            1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW SOMERSAULTS WITH FLIP JUMPS AND BEAK BUSTERS." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",             0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",              0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
     { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
@@ -432,7 +435,11 @@ extern "C" void port_vrNativeMenu_push(void* gfx) {
     const int xCur = 31;  // selection cursor block
     const int x0 = 40;    // labels
     const int xVal = 168; // values - clears "DIORAMA HEIGHT", the longest label
-    const int rowH = 13;
+    // 12, not 13: rows start at 55 and the help text sits at 170, so 13 px only ever fitted NINE
+    // rows before the last one collided with the help line. One pixel buys a tenth row on every
+    // page, which is what a new toggle costs. (The selection bar is still 13 tall and only one is
+    // ever drawn, so the tighter pitch changes nothing about how it reads.)
+    const int rowH = 12;
     int y = 55;
 
     const VrPage resolved = ResolvePage(sPage);
@@ -452,7 +459,13 @@ extern "C" void port_vrNativeMenu_push(void* gfx) {
     print_dialog(x0, 40, (unsigned char*)page->title);
     print_dialog(xVal, 40, (unsigned char*)sPageHdr);
 
-    for (int i = 0; i < page->rowCount; i++) {
+    // Bounded by the value-buffer count, not just the row count: the print buffer holds POINTERS
+    // into sValBufs until the frame flush, so an eleventh row on some future page would write past
+    // the array instead of merely looking wrong.
+    const int drawRows = page->rowCount < (int)(sizeof(sValBufs) / sizeof(sValBufs[0]))
+                             ? page->rowCount
+                             : (int)(sizeof(sValBufs) / sizeof(sValBufs[0]));
+    for (int i = 0; i < drawRows; i++) {
         const VrRow* row = &page->rows[i];
         char* val = sValBufs[i];
         val[0] = 0;

@@ -125,6 +125,8 @@ static float sFirstPersonForward = 0.00f;   // meters of extra forward push in F
                                             // (port_vrFirstPerson_override), so this is a fine-tune
                                             // nudge, not the mechanism - 0 = exactly at his head.
 static float sFPForwardCur       = 0.0f;    // eased First-Person push - see vr_begin_frame.
+static float sFPEyeHeightCur     = 0.0f;    // eased First-Person eye height, same treatment
+static bool  sFpFramingOn        = true;    // false while the GAME owns the camera (see vr_set_fp_framing)
 static float sFirstPersonScale   = 100.0f;  // First Person world scale (units/m), its OWN knob (like
                                             // Diorama) so it doesn't shrink Third Person.
 static float sFirstPersonEyeHeight = 0.0f;  // First Person eye height (m), its OWN knob
@@ -464,7 +466,7 @@ static void vr_build_eye_matrix(int eye) {
         A[3][1] = sDioramaHeight;
         A[3][2] = -sDioramaDist;
     } else if (sViewMode == 1) {    // First Person: own eye height + push the eye toward Banjo
-        A[3][1] = sFirstPersonEyeHeight;
+        A[3][1] = sFPEyeHeightCur;  // both eased, and both fade out while the GAME frames the shot
         A[3][2] = sFPForwardCur;    // eased toward the cockpit (see vr_begin_frame)
     } else if (sViewMode == 2) {    // Slot 2: no Banjo equivalent (the flying ports' cockpit view). The
         A[3][1] = sEyeHeight + sCockpitHeight; // in-game cycle skips it; the offsets stay wired so the
@@ -636,6 +638,19 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     vr_sync_tunables(); // so eye dumps reflect the CVars, not the compile-time defaults
     if (eye == 0) {
         vr_flip_ease(); // the harness's per-frame heartbeat: same flip-cam ease as the live path
+        static int sSynthLog = -1;
+        if (sSynthLog < 0) {
+            sSynthLog = (getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
+        }
+        if (sSynthLog == 1) {
+            static float pf = -999.0f, pe = -999.0f, pr = -999.0f;
+            if (sFPForwardCur != pf || sFPEyeHeightCur != pe || sFlipRad != pr) {
+                printf("[VRDBG] synth A: mode=%d fpFwd=%.4f fpEye=%.4f flip=%.4f framing=%d\n", sViewMode,
+                       sFPForwardCur, sFPEyeHeightCur, sFlipRad, sFpFramingOn ? 1 : 0);
+                fflush(stdout);
+                pf = sFPForwardCur; pe = sFPEyeHeightCur; pr = sFlipRad;
+            }
+        }
     }
     XrFovf fov;
     fov.angleLeft = -0.8727f;
@@ -675,8 +690,8 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         A[3][1] = sDioramaHeight;
         A[3][2] = -sDioramaDist;
     } else if (sViewMode == 1) {
-        A[3][1] = sFirstPersonEyeHeight;
-        A[3][2] = sFirstPersonForward;
+        A[3][1] = sFPEyeHeightCur; // the eased pair, exactly as the live builder uses them
+        A[3][2] = sFPForwardCur;
     } else {
         A[3][1] = sEyeHeight;
     }
@@ -1545,12 +1560,34 @@ extern "C" void vr_set_flip_angle(float radians) {
     sFlipTargetRad = radians;
 }
 
+// Is VR First Person actually DRIVING the camera this tick? When the game takes it for a scripted
+// shot the answer is no, and the First Person framing offsets fade out so the authored composition
+// is presented as composed (head tracking still applies - you can look around inside the shot).
+extern "C" void vr_set_fp_framing(int on) {
+    sFpFramingOn = (on != 0);
+}
+
 // Per headset frame: follow the target, and snap when close so the view settles dead level between
 // flips instead of creeping.
 static void vr_flip_ease(void) {
-    sFlipRad += (sFlipTargetRad - sFlipRad) * 0.22f;
-    if (fabsf(sFlipTargetRad - sFlipRad) < 0.0008f) {
-        sFlipRad = sFlipTargetRad;
+    const float kTwoPi = 6.28318530718f;
+    float target = sFlipTargetRad;
+    float rate = 0.22f;
+    if (target == 0.0f && sFlipRad != 0.0f) {
+        // THE MOVE ENDED. Do not unwind: land on the nearest WHOLE revolution and carry on the way
+        // the body was already turning. A flip that lands with 40 degrees still to run finishes
+        // those 40; one barely begun returns to level. Unwinding instead rolled the view backwards
+        // down through the floor for a few frames on touchdown - reported as the camera sinking
+        // into the ground on landing. Faster too, because the move is over and the view should be
+        // level by the time the player has landed, not a beat later.
+        target = kTwoPi * floorf(sFlipRad / kTwoPi + 0.5f);
+        rate = 0.35f;
+    }
+    sFlipRad += (target - sFlipRad) * rate;
+    if (fabsf(target - sFlipRad) < 0.0008f) {
+        // A completed revolution IS upright, so fold it back to zero: same rotation, and the next
+        // flip starts from a clean slate instead of accumulating turns.
+        sFlipRad = (sFlipTargetRad == 0.0f) ? 0.0f : target;
     }
 }
 
@@ -1603,13 +1640,25 @@ static void vr_sync_tunables(void) {
     // opens with the eye already in the cockpit on frame 1 - a visible forward sweep under headset
     // reprojection reads as a doubled / cross-eyed image for a second. The ease only runs across live
     // slider changes mid-flight.
+    sFirstPersonEyeHeight = CVarGetFloat("gVRFirstPersonEyeHeight", sFirstPersonEyeHeight);
     {
-        float fpTarget = sFirstPersonForward;
-        if (sEyesSubmitted < 2) { sFPForwardCur = fpTarget; }            // parked (no eyes last frame): snap
-        else { sFPForwardCur += (fpTarget - sFPForwardCur) * 0.12f; }    // ease across live changes
+        // While the GAME owns the camera - a Bottles conversation, a switch reveal, any scripted
+        // shot - BOTH First Person framing offsets fade to zero, because that shot was composed by
+        // the game and our offsets are measured from a camera that is supposed to be parked in
+        // Banjo's head. Riding a metre of forward push and an eye-height drop on top of an authored
+        // close-up is what put the view inside walls during dialogue. Faded rather than switched:
+        // a metre of instant dolly would read as a jump cut in a headset.
+        const float fpTarget = sFpFramingOn ? sFirstPersonForward : 0.0f;
+        const float ehTarget = sFpFramingOn ? sFirstPersonEyeHeight : 0.0f;
+        if (sEyesSubmitted < 2) { // parked (no eyes last frame): snap, so gameplay opens in the cockpit
+            sFPForwardCur = fpTarget;
+            sFPEyeHeightCur = ehTarget;
+        } else {
+            sFPForwardCur += (fpTarget - sFPForwardCur) * 0.12f;      // ease across live changes
+            sFPEyeHeightCur += (ehTarget - sFPEyeHeightCur) * 0.12f;
+        }
     }
     sFirstPersonScale     = CVarGetFloat("gVRFirstPersonScale",     sFirstPersonScale);
-    sFirstPersonEyeHeight = CVarGetFloat("gVRFirstPersonEyeHeight", sFirstPersonEyeHeight);
     sThirdPersonDist      = CVarGetFloat("gVRThirdPersonDist",      sThirdPersonDist);
     sCockpitForward       = CVarGetFloat("gVRCockpitFwd",           sCockpitForward);
     sCockpitHeight        = CVarGetFloat("gVRCockpitHeight",        sCockpitHeight);
@@ -2348,5 +2397,6 @@ extern "C" void  vr_controller_rumble(float strength, float seconds) { (void) st
 extern "C" void  vr_controller_rumble_stop(void) {}
 extern "C" void  vr_shutdown(void) {}
 extern "C" void  vr_set_flip_angle(float radians) { (void)radians; }
+extern "C" void  vr_set_fp_framing(int on) { (void)on; }
 
 #endif

@@ -59,6 +59,7 @@ void ncDynamicCamera_getPosition(f32 dst[3]);
 void func_802C0490(f32 focus[3]); // camera focus point (Banjo)
 f32 func_802BD8D4(void);          // the camera's DESIRED orbit distance, before wall collision
 void ncDynamicCamera_getRotation(f32 dst[3]);
+s32  ncDynamicCamera_getState(void); // which camera is driving - logged so scripted shots are identifiable
 void viewport_setPosition_vec3f(f32 pos[3]);
 // The game's own collision raycast. Using it (rather than a second collision system) keeps the VR
 // anti-clip agreeing with the walls the game itself believes in. The real return is a collision
@@ -790,14 +791,20 @@ static void MergePadSources(OSContPad* pad) {
             sLog = (getenv("BK_VR_LIVELOG") != NULL || getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
         }
         if (sLog == 1) {
-            static s32 sPrevMode = -1, sPrevBs = -1;
-            static int sPrevLive = -1, sPrevWater = -1;
-            const s32 m = getGameMode(), b = bs_getState();
+            static s32 sPrevMode = -1, sPrevBs = -1, sPrevCam = -1;
+            static int sPrevLive = -1, sPrevWater = -1, sPrevFraming = -1;
+            const s32 m = getGameMode(), b = bs_getState(), cam = ncDynamicCamera_getState();
             const int live = BsStateIsLive() ? 1 : 0, water = player_inWater() ? 1 : 0;
-            if (m != sPrevMode || b != sPrevBs || live != sPrevLive || water != sPrevWater) {
-                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d\n", (int)m, (unsigned)b, live, water);
+            const int framing = port_vrFirstPerson_hidePlayer();
+            if (m != sPrevMode || b != sPrevBs || live != sPrevLive || water != sPrevWater || cam != sPrevCam ||
+                framing != sPrevFraming) {
+                // cam = which camera owns the shot, fpFraming = whether our First Person offsets apply.
+                // A scripted shot shows as a cam change with fpFraming dropping to 0.
+                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d cam=%d fpFraming=%d\n", (int)m,
+                       (unsigned)b, live, water, (int)cam, framing);
                 fflush(stdout); // survives a killed process - an observability print that can vanish is no seam
-                sPrevMode = m; sPrevBs = b; sPrevLive = live; sPrevWater = water;
+                sPrevMode = m; sPrevBs = b; sPrevLive = live; sPrevWater = water; sPrevCam = cam;
+                sPrevFraming = framing;
             }
         }
     }
@@ -950,6 +957,10 @@ extern "C" void VrGame_SyncFrame(void) {
     VrGame_SampleMouse();   // one mouse sample per tick; look paths consume it once
     vr_set_hud_menu_mode(getGameMode() == GAME_MODE_4_PAUSED || port_vrNativeMenu_isOpen());
     vr_set_flip_angle(VrFlipAngleRad()); // flip cam target; vr.cpp eases it at the headset's rate
+    // Whether First Person is really driving the camera. The same drive-tick freshness that decides
+    // if the bear stays hidden decides whether our framing offsets apply: when the game takes the
+    // camera for a conversation or a switch reveal, the offsets fade and the authored shot stands.
+    vr_set_fp_framing(port_vrFirstPerson_hidePlayer());
 
     // --- head translation scale, including the ANTI-CLIP wall clamp ---------------------------
     // Physical lean is what pushes the eye through walls: the game collides its CAMERA and knows
