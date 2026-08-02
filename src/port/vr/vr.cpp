@@ -1680,6 +1680,26 @@ extern "C" void vr_begin_frame(void) {
 
     vr_poll_events();
 
+    // SAVED SETTINGS MIGRATION. A shipped default only reaches players who have never written the
+    // key - everyone else keeps whatever their config captured, forever, which is why "it defaults
+    // on" and "it is on for me" keep disagreeing. Version the settings and migrate once.
+    //   1 = Immersive Camera is ON. It is the switch the whole first-person feel hangs off, and it
+    //       now also enables the view following Banjo's body, so a config that captured it while it
+    //       was optional leaves the player with a first person that does none of it.
+    {
+        static bool sMigrated = false;
+        if (!sMigrated) {
+            sMigrated = true;
+            const int kSettingsVer = 1;
+            if (CVarGetInteger("gVRSettingsVer", 0) < kSettingsVer) {
+                CVarSetInteger("gVRFpImmersive", 1);
+                CVarSetInteger("gVRSettingsVer", kSettingsVer);
+                printf("[VR] settings migrated to v%d: Immersive Camera enabled.\n", kSettingsVer);
+                fflush(stdout);
+            }
+        }
+    }
+
     vr_sync_tunables();
 
     vr_flip_ease(); // first person flip cam: follow the game's flip angle at the headset's frame rate
