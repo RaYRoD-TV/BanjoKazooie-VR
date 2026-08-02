@@ -84,7 +84,7 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Vertical Look (Right Stick)", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpVerticalLook")
         .RaceDisable(false)
-        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
             "Whether the right stick may pitch the First Person view up/down. Off = vertical stays "
             "on your head only; the stick still turns left/right either way."));
 
@@ -148,7 +148,7 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Diorama Distance", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaDist")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.6f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.05f).Tooltip(
             "Metres the tabletop sits in front of you."));
 
     AddWidget(path, "Diorama Height", WIDGET_CVAR_SLIDER_FLOAT)
@@ -277,6 +277,13 @@ void LighthouseMenu::AddMenuVR() {
         .Options(FloatSliderOptions().Min(0.3f).Max(1.0f).Step(0.05f).DefaultValue(0.85f).Tooltip(
             "How solid the menus and pause panel look in the headset. Lower shows the live game "
             "through them."));
+
+    AddWidget(path, "Settings Menu Opacity", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRImGuiOpacity")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions().Min(0.3f).Max(1.0f).Step(0.05f).DefaultValue(0.85f).Tooltip(
+            "How solid THIS settings menu looks in the headset. Separate from the game menus so "
+            "you can keep the game readable behind it while tuning."));
 
     AddWidget(path, "First Person View Bob", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpViewBob")

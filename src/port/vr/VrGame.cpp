@@ -605,7 +605,7 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     // guRotate(-yaw) math is the one that feels inverted, so the headset wins - do not re-derive.
     sYaw -= curve(rs[0], kDead) * lookSpeed * invertX * dt;
 
-    if (CVarGetInteger("gVRFpVerticalLook", 0) != 0) {
+    if (CVarGetInteger("gVRFpVerticalLook", 1) != 0) {
         sPitch += curve(rs[1], kDead) * lookSpeed * 0.625f * dt;
     } else {
         sPitch = 0.0f;
@@ -620,7 +620,7 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         if (mdx != 0.0f || mdy != 0.0f) {
             const float mouseSens = CVarGetFloat("gVRMouseSens", 0.10f);
             sYaw -= mdx * mouseSens * invertX; // mouse right looks right (same minus law as the stick)
-            if (CVarGetInteger("gVRFpVerticalLook", 0) != 0) {
+            if (CVarGetInteger("gVRFpVerticalLook", 1) != 0) {
                 sPitch += -mdy * mouseSens; // mouse up looks up
             }
         }
@@ -680,6 +680,20 @@ extern "C" int port_vrImGuiMenuVisible(void) {
 
 extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY);
 
+// Underwater, A IS the fast stroke. The game puts the quick flipper kick on B and a slow wing
+// paddle on A, but "go faster" lives on A in every VR player's thumb memory. In the dive states A
+// becomes B; B itself is untouched, so either button kicks. Only the dive family remaps - at the
+// surface the real A must survive, because that press is the dive itself - and never while
+// paused, where A selects menu rows. Idempotent, so both call sites below may run in one tick.
+static void SwimFastRemap(OSContPad* pad) {
+    if (getGameMode() == GAME_MODE_4_PAUSED || !bsbswim_inSet(bs_getState())) {
+        return;
+    }
+    if (pad->button & A_BUTTON) {
+        pad->button = (u16)((pad->button & ~A_BUTTON) | B_BUTTON);
+    }
+}
+
 extern "C" void VrGame_MergePad(OSContPad* pad) {
     if (pad == NULL) {
         return;
@@ -699,6 +713,8 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
         pad->right_stick_y = 0;
         return;
     }
+    // Remap BEFORE the motion-controller early-outs so a plain gamepad gets it too...
+    SwimFastRemap(pad);
     if (!vr_controllers_active() || CVarGetInteger("gVRMotionControls", 1) == 0) {
         return;
     }
@@ -769,6 +785,9 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     vr_controller_stick(0, ls);
     mergeAxis((int8_t)(ls[0] * 80.0f), pad->stick_x);
     mergeAxis((int8_t)(ls[1] * 80.0f), pad->stick_y);
+
+    // ...and AFTER the VR bits land, so a motion-controller A press remaps as well.
+    SwimFastRemap(pad);
 }
 
 // Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU

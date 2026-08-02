@@ -137,7 +137,7 @@ static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m
                                             // person. Higher = smaller tabletop. 8000 with the forward and
                                             // downward placement below reads as a MODEL on a table in front
                                             // of you rather than a world you happen to be huge in.
-static float sDioramaDist        = 0.60f;   // meters the tabletop sits in front of you (Diorama)
+static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front of you (Diorama)
 static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
 static float sMenuOpacity        = 0.85f;   // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
 
@@ -192,6 +192,7 @@ static float sPanelAnchorQy = 0.0f, sPanelAnchorQw = 1.0f;
 static bool  sRecenterSet = false;
 static bool  sRecenterRequest = false;
 static bool  sAutoRecentered = false;    // one automatic recenter at the first FOCUSED frame
+static bool  sSpaceChangePending = false; // runtime moved LOCAL space: re-capture once the head is calm
 static float sRcQy = 0.0f, sRcQw = 1.0f; // conjugate of the captured head yaw twist
 static float sRcPos[3] = { 0, 0, 0 };    // captured head x/Y/z - height included: runtimes disagree
                                          // about where LOCAL's origin sits (eye level, floor, a
@@ -487,21 +488,26 @@ static void vr_build_eye_matrix(int eye) {
     // per-eye orientation and fov as the submitted pose, so the compositor's reprojection cancels
     // cleanly and both eyes fuse it at infinity while the world keeps full stereo.
     {
-        // Identical to the eye matrix in EVERY term - the full A (scale AND the per-mode framing
-        // translations) and the same head pose - except the position is the shared centre, no
-        // per-eye IPD offset. The first version dropped A's translations "to centre the sky on
-        // the viewer", which broke the one invariant that matters: the sky must render exactly
-        // like the world pass minus separation. With the sky-eye displaced from the world-eye by
-        // the framing offsets (plus a runtime origin error), a player could end up OUTSIDE the
-        // sky mesh - the wild report's floating faceted dome with black past its rim.
+        // Sky, third construction - the one that satisfies the ACTUAL invariant. The sky mesh is
+        // SMALL and only reads as sky when the viewer sits at its exact centre; the flat game
+        // guarantees that by drawing it AT the camera every frame. Neither previous attempt kept
+        // that guarantee: scale-only (v1) let the head's room position walk the eye out of the
+        // dome (the floating faceted UFO), and full-A (v2) fed the per-mode framing offsets in -
+        // third person's eye height pushed the eye through the dome wall (black sky) and
+        // Diorama's scale shrank the whole dome to centimetres (sky "all wrong"). First person
+        // was fine both times because its offsets are zero, which is the tell. So: FIXED
+        // life-size scale, NO translations, rotation-only view. The eye is pinned to the dome's
+        // centre in every mode, both eyes fuse it at infinity (no position = no separation), and
+        // the game's own projection MULs still turn it with the camera.
         XrPosef skyPose = pose;
-        skyPose.position.x = dcx;
-        skyPose.position.y = dcy;
-        skyPose.position.z = dcz;
+        skyPose.position.x = skyPose.position.y = skyPose.position.z = 0.0f;
+        float Asky[4][4] = { { 0 } };
+        const float invLife = 1.0f / 100.0f;
+        Asky[0][0] = invLife; Asky[1][1] = invLife; Asky[2][2] = invLife; Asky[3][3] = 1.0f;
         float Vsky[4][4], Psky[4][4], AVsky[4][4];
         mat_view_from_pose(Vsky, skyPose);
         mat_proj_fov(Psky, fov, zn, zf);
-        mat_mul(AVsky, A, Vsky);
+        mat_mul(AVsky, Asky, Vsky);
         mat_mul(sSkyVP[eye], AVsky, Psky);
     }
     (void) sSkyCamValid; // camera rotation is never folded in - the game's own projection MULs carry it
@@ -546,16 +552,13 @@ static void vr_build_eye_matrix(int eye) {
         M[2][2] = 0.002f;
         M[3][1] = hudY; M[3][2] = -D; M[3][3] = 1.0f; // quad centre D metres ahead in reference space
 
-        // In MENU mode the plane is built from the HEAD CENTRE, not the per-eye position: text with
-        // inter-eye disparity is exactly what reads as "crossed eyes" when you look at it directly,
-        // and there is nothing to gain from menu text having depth. Both eyes get the identical
-        // image, so it always fuses. The gameplay HUD keeps its real per-eye depth.
+        // The plane uses the PER-EYE pose in menu mode too. The old head-centre build gave menu
+        // text ZERO disparity - which is an INFINITY depth cue - on a panel 3.4 m away floating
+        // over a live stereo world whose geometry carries real disparity. Two contradictory depth
+        // cues in one glance is exactly what a player reports as "the pause text is cross-eyed".
+        // Correct disparity AT the panel's distance (6.4 cm over 3.4 m is about a degree) fuses
+        // easily and finally agrees with the world behind it.
         XrPosef hudPose = pose;
-        if (sHudMenuMode) {
-            hudPose.position.x = dcx;
-            hudPose.position.y = dcy;
-            hudPose.position.z = dcz;
-        }
         float Vhud[4][4], Phud[4][4], MV[4][4];
         mat_view_from_pose(Vhud, hudPose);
         mat_proj_fov(Phud, sRenderFov[eye], 0.05f, 100.0f);
@@ -673,13 +676,15 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     mat_mul(out, AV, P);
     memcpy(eyeVP, out, sizeof(out));
 
-    // Sky: the FULL A (framing translations included, mirroring the live build), view at the
-    // shared centre (identity), same projection - by construction both eyes get the identical
-    // matrix, which IS the zero-separation contract under test, and the sky-eye sits exactly
-    // where the world-eye does minus the IPD term.
+    // Sky: fixed life-size scale, no translations, identity view - mirroring the live third
+    // construction. By definition identical for both eyes, which IS the zero-separation contract
+    // under test, and the viewer is pinned to the dome centre in every mode.
     {
+        float Asky[4][4] = { { 0 } };
+        const float invLife = 1.0f / 100.0f;
+        Asky[0][0] = invLife; Asky[1][1] = invLife; Asky[2][2] = invLife; Asky[3][3] = 1.0f;
         float skyOut[4][4];
-        mat_mul(skyOut, A, P);
+        mat_mul(skyOut, Asky, P);
         memcpy(skyVP, skyOut, sizeof(skyOut));
     }
 
@@ -1409,12 +1414,14 @@ static void vr_poll_events(void) {
             sRecenterSet = false;
             sRcQy = 0.0f;
             sRcQw = 1.0f;
-            // Then immediately re-capture OUR correction on the new space: this is what makes the
-            // RUNTIME's own recenter (the system button held) land the height and framing the same
-            // way the in-game recenter does, instead of leaving the origin wherever the runtime
-            // put it.
-            sRecenterRequest = true;
-            printf("[VR] reference space recentered; anchors reset, re-capturing origin.\n");
+            // Re-capture OUR correction on the new space - but NOT this instant. Virtual Desktop
+            // fires this event on tracking blips as well as deliberate recenters, and an
+            // immediate re-capture mid-head-motion snapped the world to wherever the head
+            // happened to be ("the game uncenters sometimes"). The capture is deferred until the
+            // head has been near-stationary for a beat: a deliberate recenter (head held still)
+            // lands almost instantly, a mid-motion blip waits for calm.
+            sSpaceChangePending = true;
+            printf("[VR] reference space recentered; anchors reset, origin re-capture pending.\n");
         }
         ev.type = XR_TYPE_EVENT_DATA_BUFFER;
     }
@@ -1644,6 +1651,29 @@ extern "C" void vr_begin_frame(void) {
                 sAutoRecentered = true;
                 sRecenterRequest = true;
                 printf("[VR] first focus: auto-recenter.\n");
+            }
+            // A runtime space change re-captures only once the head is calm (~0.3 s under
+            // 15 cm/s): deliberate recenters land immediately, tracking blips wait for stillness
+            // instead of snapping the world mid-motion.
+            if (sSpaceChangePending) {
+                static float sCalmPrev[3] = { 0, 0, 0 };
+                static int sCalmFrames = 0;
+                const float hx = 0.5f * (sViews[0].pose.position.x + sViews[1].pose.position.x);
+                const float hy = 0.5f * (sViews[0].pose.position.y + sViews[1].pose.position.y);
+                const float hz = 0.5f * (sViews[0].pose.position.z + sViews[1].pose.position.z);
+                const float dx = hx - sCalmPrev[0], dy = hy - sCalmPrev[1], dz = hz - sCalmPrev[2];
+                const float kMaxStep = 0.15f / 72.0f; // 15 cm/s at a conservative frame rate
+                if (dx * dx + dy * dy + dz * dz < kMaxStep * kMaxStep) {
+                    sCalmFrames++;
+                } else {
+                    sCalmFrames = 0;
+                }
+                sCalmPrev[0] = hx; sCalmPrev[1] = hy; sCalmPrev[2] = hz;
+                if (sCalmFrames >= 20) {
+                    sSpaceChangePending = false;
+                    sCalmFrames = 0;
+                    sRecenterRequest = true;
+                }
             }
             if (sRecenterRequest) {
                 sRecenterRequest = false;
@@ -1906,7 +1936,9 @@ extern "C" void vr_menu_apply_opacity(void) {
     // The ImGui/Enhancements (settings) menu has its OWN opacity (gVRImGuiOpacity), DECOUPLED from the
     // game's VR pause-menu/HUD panel opacity (gVRMenuOpacity) - so making the pause panel see-through no
     // longer dims this settings menu. Defaults opaque (1.0). Fresh CVar read (cache refreshes after this).
-    float op = CVarGetFloat("gVRImGuiOpacity", 1.0f);
+    // Default slightly see-through: this settings menu had its own opacity CVar with a hardcoded
+    // opaque default and NO slider anywhere, which is why "menu transparency" never applied here.
+    float op = CVarGetFloat("gVRImGuiOpacity", 0.85f);
     if (op < 0.3f) op = 0.3f;
     if (op > 0.999f) return; // fully opaque: keep the FBO's cleared alpha (1.0) as-is
     glBindFramebuffer(GL_FRAMEBUFFER, sMenuFbo);

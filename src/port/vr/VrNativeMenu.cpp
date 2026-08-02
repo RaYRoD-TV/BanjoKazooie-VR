@@ -67,11 +67,12 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRFirstPersonFwd", 0.0f);
     CVarSetFloat("gVRFirstPersonEyeHeight", 0.0f);
     CVarSetFloat("gVRDioramaWorldScale", 8000.0f);
-    CVarSetFloat("gVRDioramaDist", 0.6f);
+    CVarSetFloat("gVRDioramaDist", 0.05f);
     CVarSetFloat("gVRDioramaHeight", -0.4f);
     CVarSetFloat("gVRMenuOpacity", 0.85f);
+    CVarSetFloat("gVRImGuiOpacity", 0.85f);
     CVarSetInteger("gVRFpViewBob", 1);
-    CVarSetInteger("gVRFpVerticalLook", 0);
+    CVarSetInteger("gVRFpVerticalLook", 1);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
     CVarSetInteger("gVRFpSwimFollow", 1);
@@ -137,7 +138,7 @@ static const VrRow kRowsViewDiorama[] = {
     { "VIEW MODE",      ROW_ENUM,  "gVRViewMode",          1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
     { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 8000.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
     { "STEREO",         ROW_FLOAT, "gVRStereo",            0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
-    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.6f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
+    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.05f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
     { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.4f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
     { "HUD SIZE",       ROW_FLOAT, "gVRHudScale",          0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",       ROW_FLOAT, "gVRHudDist",           0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
@@ -149,7 +150,7 @@ static const VrRow kRowsFp[] = {
     { "HEAD MOVE",     ROW_INT01, "gVRFpHeadMove",           1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "STICK FORWARD WALKS WHERE YOU ARE LOOKING." },
     { "LEAN",          ROW_FLOAT, "gVRHeadScale",            0.05f, 0.0f, 1.5f, 0.1f, NULL, NULL, -1, "HOW MUCH YOUR REAL BODY MOVEMENT MOVES THE CAMERA." },
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },
-    { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
+    { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
     { "INVERT LOOK X", ROW_INT01, "gVRFpInvertX",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT STICK LOOK." },
     { "EYE FORWARD",   ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "EYE RAISE",     ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
@@ -158,7 +159,7 @@ static const VrRow kRowsFp[] = {
 
 static const VrRow kRowsWorld[] = {
     { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 8000.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
-    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.6f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
+    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.05f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
     { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.4f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
     { "SCREEN DIST",    ROW_FLOAT, "gVRMenuDist",          0.2f, 0.5f, 12.0f, 3.4f, NULL, NULL, -1, "METRES THE FLAT SCREEN AND MENUS SIT AWAY." },
     { "SCREEN SIZE",    ROW_FLOAT, "gVRMenuSize",          0.2f, 1.0f, 16.0f, 3.6f, NULL, NULL, -1, "WIDTH OF THE FLAT SCREEN AND MENUS." },
@@ -183,6 +184,7 @@ static const VrRow kRowsSystem[] = {
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },
     { "MENU OPACITY",  ROW_FLOAT,  "gVRMenuOpacity",    0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
+    { "SETTINGS MENU", ROW_FLOAT,  "gVRImGuiOpacity",   0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
     { "VIEW BOB",      ROW_INT01,  "gVRFpViewBob",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
     { "RECENTER",      ROW_ACTION, NULL, 0, 0, 0, 0, RowRecenter, NULL, -1, "BRINGS THE WORLD SQUARE TO WHERE YOU ARE LOOKING." },
     { "VR DEFAULTS",   ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
