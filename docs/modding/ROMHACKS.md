@@ -12,7 +12,9 @@ hack into a mod overlay, and from then on you switch it on and off from the Mod 
 ## Installing a hack
 
 1. Launch the game.
-2. Open the menu. Escape on the desktop, or the right stick click (L3) in the headset.
+2. Open the port menu. Escape on the desktop, or click the LEFT stick (L3) on a controller. In the
+   headset this menu appears on the panel in front of you. Note the right stick click is not this,
+   that cycles the VR view mode.
 3. Go to **Mod Menu**.
 4. Click **Generate Romhack from ROM**.
 5. Pick the hack's `.z64` in the file browser.
