@@ -27,6 +27,7 @@ void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
 bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
+f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
 
 // Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
 // MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
@@ -544,6 +545,41 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         sPrevPos[1] = pp[1];
         sPrevPos[2] = pp[2];
         sPrevPosValid = true;
+    }
+
+    // FLOOR CLAMP, after every Y modifier: the eye is playerPosition + a FIXED head height
+    // (func_8028E9C4 mode 5 - no animation in it), and the game legitimately drives the player
+    // POSITION under the floor in some states: the beak buster slam buries the body on impact by
+    // design, and pressing Z on a bumpy uphill walk is exactly how a buster fires by accident
+    // ("crouching up a hill put my cam through the floor" - position dips, terrain rises, and
+    // position+100 lands inside the hill). The eye never sinks below the game's own tracked
+    // floor plus 0.3 m; max() is continuous, so the hold engages and releases without a pop.
+    // Never in water: there the tracked "floor" is the SURFACE, and this clamp would pin the
+    // camera above every dive. And only while the player machine is LIVE - the floor tracker is
+    // another reset-only global (round-31 law), and on the front-end screen it holds garbage
+    // that lifted the whole boot-screen camera (caught by the byte-regression dump).
+    if (BsStateIsLive() && !player_inWater()) {
+        const f32 floorY = floor_getCurrentFloorYPosition();
+        const f32 minEyeY = floorY + 30.0f;
+        const int engaged = (position[1] < minEyeY) ? 1 : 0;
+        // Engagement edge print under the harness/live log - an image diff without a mechanism
+        // counter cannot tell "clamp fired" from "scene drifted" (the round-17 law, relearned).
+        static int sPrevEngaged = -1;
+        if (engaged != sPrevEngaged) {
+            static int sLog = -1;
+            if (sLog < 0) {
+                sLog = (getenv("BK_VR_LIVELOG") != NULL || getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
+            }
+            if (sLog == 1) {
+                printf("[VR] fp floor clamp %s: eyeY=%.1f floorY=%.1f\n", engaged ? "ENGAGED" : "released",
+                       position[1], floorY);
+                fflush(stdout);
+            }
+            sPrevEngaged = engaged;
+        }
+        if (engaged) {
+            position[1] = minEyeY;
+        }
     }
 
     if (!sBaseValid) {
