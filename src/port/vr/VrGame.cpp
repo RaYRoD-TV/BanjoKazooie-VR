@@ -27,6 +27,7 @@ void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
 bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
+s32  func_80294524(void); // nonzero while the game HOLDS you at the surface - the state where A jumps out
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
 // The player's animation clock, for the flip cam. AnimCtrl is opaque here - only the normalized
 // 0..1 position matters, and C linkage cares about the name, not the pointer's type.
@@ -767,6 +768,17 @@ static void SwimButtonSwap(OSContPad* pad) {
     }
     if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL || !player_inWater() ||
         !bsbswim_inSet(bs_getState())) {
+        return;
+    }
+    // NEVER at or near the surface, because up there A is the JUMP OUT OF WATER (swim.c: the surface
+    // states take bakey_pressed(BUTTON_A) straight to BS_5_JUMP). The dive-family check above is not
+    // enough on its own: a surface stroke passes THROUGH a real dive state for a few ticks, so an A
+    // press timed inside one of those ticks got swapped to B and came out as a swim stroke instead
+    // of a jump - "the jump is too weak" and, in a pool walled on all sides, no way out at all.
+    // func_80294524 is the game's own "held at the surface" flag (climbsurface.c sets it only in
+    // that case) and func_802A73BC is its near-surface band, so the whole exit zone keeps stock
+    // buttons and the swap only ever applies where you are genuinely swimming under.
+    if (func_80294524() || func_802A73BC()) {
         return;
     }
     const u16 held = pad->button;
