@@ -203,9 +203,11 @@ void vr_controller_stick(int hand, float out[2]);
 void vr_controller_rumble(float strength, float seconds);
 void vr_controller_rumble_stop(void);
 
-// In-game recenter ("bring the world to my gaze"): re-zeroes the view yaw + position on the next
-// frame and re-parks the HUD/menu panel in front of the new forward. Hold the left stick click
-// (~0.4 s, haptic tick confirms) or use the RECENTER row in the VR menu.
+// In-game recenter ("bring the world to my gaze"): re-zeroes the view yaw + position + HEIGHT on
+// the next frame (the neutral head becomes the origin the eye-height defaults are tuned against)
+// and re-parks the HUD/menu panel in front of the new forward. Fires automatically once at the
+// first FOCUSED frame so the starting view is correct on any runtime; manually, hold both
+// triggers (~0.5 s, haptic tick confirms) or use the RECENTER row in the VR menu.
 void vr_recenter(void);
 
 void vr_shutdown(void);
