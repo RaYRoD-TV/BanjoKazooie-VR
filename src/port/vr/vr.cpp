@@ -530,7 +530,13 @@ static void vr_build_eye_matrix(int eye) {
             hudY = -D * tanf(shAV) * sHudScale * 0.15f;
         }
         float M[4][4] = { { 0 } };
-        M[0][0] = hw; M[1][1] = hh; M[2][2] = 0.0f;
+        M[0][0] = hw; M[1][1] = hh;
+        // NOT zero: Banjo's HUD is real geometry with authored Z (text -10, icons at their
+        // own depths). Flattening it all to one depth made overlapping widget layers
+        // z-fight - re-rolled every sub-frame as the plane follows the head - which is the
+        // note-counter / life-bar / air-meter flicker. A few millimetres per ortho unit
+        // keeps the authored ordering without visibly leaving the plane.
+        M[2][2] = 0.002f;
         M[3][1] = hudY; M[3][2] = -D; M[3][3] = 1.0f; // quad centre D metres ahead in reference space
 
         // In MENU mode the plane is built from the HEAD CENTRE, not the per-eye position: text with
@@ -565,7 +571,7 @@ static void vr_build_eye_matrix(int eye) {
         float hw = D * tanf(shAH);   // quad fills the full (symmetric) FOV at distance D -> covers the view
         float hh = D * tanf(shAV);
         float M2[4][4] = { { 0 } };
-        M2[0][0] = hw; M2[1][1] = hh; M2[2][2] = 0.0f; M2[3][2] = -D; M2[3][3] = 1.0f;
+        M2[0][0] = hw; M2[1][1] = hh; M2[2][2] = 0.002f; M2[3][2] = -D; M2[3][3] = 1.0f; // Z kept, same flicker law as the HUD plane
         float P2[4][4];
         mat_proj_fov(P2, sRenderFov[eye], 0.05f, 100.0f);
         mat_mul(sFull2DVP[eye], M2, P2);
@@ -648,7 +654,13 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         float hw = D * tanf(0.8727f) * sHudScale;
         float hh = D * tanf(0.8727f) * sHudScale;
         float M[4][4] = { { 0 } };
-        M[0][0] = hw; M[1][1] = hh; M[2][2] = 0.0f;
+        M[0][0] = hw; M[1][1] = hh;
+        // NOT zero: Banjo's HUD is real geometry with authored Z (text -10, icons at their
+        // own depths). Flattening it all to one depth made overlapping widget layers
+        // z-fight - re-rolled every sub-frame as the plane follows the head - which is the
+        // note-counter / life-bar / air-meter flicker. A few millimetres per ortho unit
+        // keeps the authored ordering without visibly leaving the plane.
+        M[2][2] = 0.002f;
         M[3][1] = -D * tanf(0.8727f) * sHudScale * 0.15f; M[3][2] = -D; M[3][3] = 1.0f;
         float Ph[4][4], MP[4][4];
         mat_proj_fov(Ph, fov, 0.05f, 100.0f);
@@ -659,7 +671,7 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         float D = 2.0f;
         float hw = D * tanf(0.8727f), hh = D * tanf(0.8727f);
         float M2[4][4] = { { 0 } };
-        M2[0][0] = hw; M2[1][1] = hh; M2[2][2] = 0.0f; M2[3][2] = -D; M2[3][3] = 1.0f;
+        M2[0][0] = hw; M2[1][1] = hh; M2[2][2] = 0.002f; M2[3][2] = -D; M2[3][3] = 1.0f; // Z kept, same flicker law as the HUD plane
         float P2[4][4], MP2[4][4];
         mat_proj_fov(P2, fov, 0.05f, 100.0f);
         mat_mul(MP2, M2, P2);
