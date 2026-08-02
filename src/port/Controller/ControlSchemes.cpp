@@ -139,6 +139,14 @@ void ControlSchemes_Apply(int scheme) {
             BindButton(controller, BTN_CDOWN, SDL_CONTROLLER_BUTTON_B);
             BindAxisToButton(controller, BTN_CLEFT, SDL_CONTROLLER_AXIS_RIGHTX, -1);
             BindAxisToButton(controller, BTN_CRIGHT, SDL_CONTROLLER_AXIS_RIGHTX, 1);
+            // The D-pad IS the C-pad: Banjo never uses the N64 D-pad, and real button C presses
+            // are the only reliable route to Z + C-Left (Talon Trot) with the right stick owning
+            // the camera. These pass the shaping pass untouched - only AXIS-sourced C bits are
+            // stripped there.
+            BindButton(controller, BTN_CUP, SDL_CONTROLLER_BUTTON_DPAD_UP);
+            BindButton(controller, BTN_CDOWN, SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+            BindButton(controller, BTN_CLEFT, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+            BindButton(controller, BTN_CRIGHT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
 
             // Recenter camera
             ClearButtonSDL(controller, BTN_R);
@@ -241,7 +249,32 @@ extern "C" void port_shapeControllerInput(void* contPad) {
 
     if (modern) {
         if (!crouched && !eggPooping) {
-            pad->button &= ~BTN_CDOWN;
+            // Face-B doubles as C-Down for the crouched egg poop; standing, that face press must
+            // not zoom the camera. But a C-Down from any OTHER source (the D-pad default, a custom
+            // bind) is a deliberate C press and passes - source-checked against the raw pad so a
+            // remap can never be silently eaten. (The wild report "can't map C-buttons" was these
+            // strips running source-blind.)
+            bool faceBHeld = false;
+            bool dpadDownHeld = false;
+            auto ctxB = Ship::Context::GetRawInstance();
+            auto deckB = ctxB != nullptr ? ctxB->GetControlDeck() : nullptr;
+            auto devMgrB = deckB != nullptr ? deckB->GetConnectedPhysicalDeviceManager() : nullptr;
+            if (devMgrB != nullptr) {
+                for (auto& [instanceId, gamepad] : devMgrB->GetConnectedSDLGamepadsForPort(0)) {
+                    if (gamepad == nullptr) {
+                        continue;
+                    }
+                    if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_B)) {
+                        faceBHeld = true;
+                    }
+                    if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) {
+                        dpadDownHeld = true;
+                    }
+                }
+            }
+            if (faceBHeld && !dpadDownHeld) {
+                pad->button &= ~BTN_CDOWN;
+            }
         }
 
         // Bindings applied under Retro can leave the right stick mapped to C-buttons as AXES; under
@@ -274,7 +307,17 @@ extern "C" void port_shapeControllerInput(void* contPad) {
                 allow = BTN_CRIGHT;
                 sStickArmed = false;
             }
-            pad->button = (pad->button & ~(BTN_CLEFT | BTN_CRIGHT)) | allow;
+            // Strip only the AXIS-sourced C-left/right (the free-look stick posing as C presses).
+            // Button-sourced presses - the D-pad row, custom binds - are deliberate and pass, which
+            // is what makes Z + C-Left (Talon Trot) reachable at all under Modern.
+            uint16_t axisCLR = 0;
+            if (CButtonIsAxis(controller, BTN_CLEFT)) {
+                axisCLR |= BTN_CLEFT;
+            }
+            if (CButtonIsAxis(controller, BTN_CRIGHT)) {
+                axisCLR |= BTN_CRIGHT;
+            }
+            pad->button = (pad->button & ~axisCLR) | allow;
         }
     } else {
         uint16_t axisMask = 0;

@@ -1388,6 +1388,12 @@ extern void ResourceHelpers_ClearRefCache();
 void ReleaseSoundfonts();
 
 void GameEngine::Destroy() {
+    // End the OpenXR session FIRST, while the GL context is still current: quitting with a live
+    // session left the headset frozen on the last frame and the process wedged in a kernel wait
+    // (window gone, VR view stuck, unkillable until the streamer restarted). No-op when VR never
+    // started.
+    vr_shutdown();
+
     // Stop rumble on all controllers before tearing down
     if (Instance->context && Instance->context->GetControlDeck()) {
         for (int i = 0; i < 4; i++) {

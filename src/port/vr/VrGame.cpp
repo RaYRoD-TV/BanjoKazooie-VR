@@ -19,6 +19,7 @@ extern "C" {
 #include <libultraship/libultra/controller.h>
 
 s32 getGameMode(void);
+s32 bs_getState(void); // the player state machine - the crouch gate for the Y = C-Left trot entry
 enum map_e gsworld_getMap(void);
 s32 gsworld_getEnableDraw(void);
 void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot pos + per-transform head height)
@@ -134,6 +135,10 @@ extern "C" void VrGame_CycleViewMode(void) {
 
 // ---- immersive first person --------------------------------------------------
 
+// Per-tick clock, incremented in VrGame_SyncFrame. Freshness reference for the sky-pass Mtx
+// registry and the "is the FP override actually driving the camera" gate below.
+static int sVrTick = 0;
+
 // True while VR First Person should own the camera and hide the bear: an OpenXR session is live, the
 // mode is First Person, and the player is actually in a playable world (the same stereo gate the
 // renderer uses - cutscene maps and the file select keep their own cameras and their own Banjo).
@@ -141,8 +146,21 @@ static bool VrFp_Active(void) {
     return vr_get_view_mode() == VR_VIEW_FIRST_PERSON && VrGame_StereoActive();
 }
 
+// The tick the FP override last actually drove the camera. When the GAME takes the camera - a
+// dialogue framing Banjo and an NPC, a drone shot - the override stops running, this goes stale,
+// and the bear must come back: an invisible Banjo in a conversation shot was the wild report
+// "start a dialogue and Banjo is invisible". Pause is the exception (the camera update stops but
+// the eye is still parked inside his head).
+static int sFpCamDriveTick = -100;
+
 extern "C" int port_vrFirstPerson_hidePlayer(void) {
-    return VrFp_Active() ? 1 : 0;
+    if (!VrFp_Active()) {
+        return 0;
+    }
+    if (getGameMode() == GAME_MODE_4_PAUSED) {
+        return 1; // camera update is stopped but the view is still from inside his head
+    }
+    return (sVrTick - sFpCamDriveTick) <= 2 ? 1 : 0;
 }
 
 // VR stereo pause renders the live (frozen) world behind the pause menu instead of the flat game's
@@ -310,7 +328,6 @@ extern "C" void port_vrCullAdjust(f32* pitchDeg, f32* yawDeg, f32* frustumX, f32
 static void* sSkyPerspMtx[2] = { NULL, NULL };
 static int sSkyPerspTick[2] = { -100, -100 };
 static int sSkyPerspSlot = 0;
-static int sVrTick = 0;
 
 extern "C" void port_vrMarkSkyPerspMtx(void* mtx) {
     sSkyPerspSlot ^= 1;
@@ -454,6 +471,7 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         return;
     }
     sInactiveFrames = 0;
+    sFpCamDriveTick = sVrTick; // the override IS driving the camera this tick - keep the bear hidden
 
     f32 eye[3];
     func_8028E9C4(5, eye);
@@ -576,10 +594,10 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
 //   left grip         R - camera modifier / centre
 //   A / B buttons     A / B directly (so either hand works in menus)
 //   X                 Z (crouch from a face button too)
-//   Y                 unbound - it was C-Up, and any C-press kicks Free Look back to the auto
-//                     camera (read as "the camera recenters while I look around"). The close-up
-//                     look IS the right stick now: free-look pitch in third person, smooth look in
-//                     first person.
+//   Y                 C-Left WHILE CROUCHED ONLY - the Talon Trot entry (Z + C-Left). Unbound
+//                     otherwise: a bare C-press kicks Free Look back to the auto camera (read as
+//                     "the camera recenters while I look around"). The close-up look IS the right
+//                     stick: free-look pitch in third person, smooth look in first person.
 //   menu button       Start (pause)
 //   right stick       camera (Modern scheme orbit; C-flicks under Retro; look in First Person)
 //   right stick click cycle VR view mode (handled by the caller: it is a mode switch, not a pad bit)
@@ -647,6 +665,10 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     if (vb & VR_BTN_X)        { btn |= Z_TRIG; }
     if (vb & VR_BTN_LGRIP)    { btn |= R_TRIG; }
     if (vb & VR_BTN_MENU)     { btn |= START_BUTTON; }
+    // Y = C-Left ONLY WHILE CROUCHED: the Talon Trot entry (Z + C-Left), otherwise unreachable on
+    // motion controllers with the right stick owning the camera. Crouch-gated because a bare
+    // C-press kicks Free Look back to the auto camera - the very reason Y was unbound before.
+    if ((vb & VR_BTN_Y) && bs_getState() == BS_7_CROUCH) { btn |= L_CBUTTONS; }
 
     // Per axis the stronger source wins BY MAGNITUDE. The old form compared signed values, so an
     // idle VR stick (exactly 0) - or a whisper of negative drift - "won" against any POSITIVE
@@ -667,12 +689,13 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     float rs[2];
     vr_controller_stick(1, rs);
     {
-        // The RIGHT stick is read back through controller_getRightStick, which normalises by 127 -
-        // not the 80 the LEFT stick uses. Writing 80 here meant a full VR deflection arrived as
-        // 0.63, and the look curve then squared that down to about a third of the intended speed.
-        // This one mismatch was the whole "stick look is very slow" report.
-        mergeAxis((int8_t)(rs[0] * 127.0f), pad->right_stick_x);
-        mergeAxis((int8_t)(rs[1] * 127.0f), pad->right_stick_y);
+        // Right-stick range law, second edition: libultraship fills these fields to +-85
+        // (MAX_AXIS_RANGE) and controller_getRightStick now normalises by the same 85, so the VR
+        // write matches - all three ends agree on one scale. (History: the merge once wrote 80
+        // against a 127 reader, then 127 against an 85-filling gamepad; each mismatch surfaced
+        // as a "look speed" bug that no speed constant could fix.)
+        mergeAxis((int8_t)(rs[0] * 85.0f), pad->right_stick_x);
+        mergeAxis((int8_t)(rs[1] * 85.0f), pad->right_stick_y);
     }
     if (CVarGetInteger(CVAR_SETTING("Controls.Scheme"), CONTROL_SCHEME_MODERN) != CONTROL_SCHEME_MODERN) {
         const float kCDeadZone = 0.5f;

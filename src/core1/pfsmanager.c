@@ -144,9 +144,13 @@ void controller_getJoystick(s32 controller_index, f32 dst[2]){
 
 // [port] Raw right-stick analog values, normalized to [-1, 1]. Positive Y is
 // "up", matching the left stick's forward convention.
+// The divisor is libultraship's MAX_AXIS_RANGE (85), NOT 127: the pad axes are filled to +-85,
+// so dividing by 127 capped a fully deflected gamepad at 0.67 - and the quadratic look curve
+// squared that to ~45% of the configured rate, which read as "the look speed slider does
+// nothing". Every writer of these fields (libultraship and the VR controller merge) uses 85.
 void controller_getRightStick(s32 controller_index, f32 dst[2]){
-    dst[0] = (f32)pfsManagerContPadData[controller_index].right_stick_x / 127.0f;
-    dst[1] = (f32)pfsManagerContPadData[controller_index].right_stick_y / 127.0f;
+    dst[0] = (f32)pfsManagerContPadData[controller_index].right_stick_x / 85.0f;
+    dst[1] = (f32)pfsManagerContPadData[controller_index].right_stick_y / 85.0f;
     if(dst[0] < -1.0f) dst[0] = -1.0f;
     if(dst[0] >  1.0f) dst[0] =  1.0f;
     if(dst[1] < -1.0f) dst[1] = -1.0f;

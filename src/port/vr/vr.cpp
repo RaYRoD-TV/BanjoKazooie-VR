@@ -2021,6 +2021,42 @@ extern "C" void vr_submit(void) {
 }
 
 extern "C" void vr_shutdown(void) {
+    // END the session before destroying anything. A hard xrDestroySession on a live session - with
+    // an xrBeginFrame still unmatched - leaves VirtualDesktopXR compositing the last frame forever
+    // and parks the process in a kernel wait: the window closes, the headset view sticks, and the
+    // zombie survives taskkill until the streamer restarts. Submit the missing empty end-frame,
+    // ask the runtime to exit, drain events until STOPPING, end the session properly - every step
+    // bounded so a dead runtime can't hang shutdown either.
+    if (sSession != XR_NULL_HANDLE && sRunning) {
+        if (sFrameBegun) {
+            XrFrameEndInfo fei = { XR_TYPE_FRAME_END_INFO };
+            fei.displayTime = sFrameState.predictedDisplayTime;
+            fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            fei.layerCount = 0;
+            xrEndFrame(sSession, &fei);
+            sFrameBegun = false;
+        }
+        xrRequestExitSession(sSession);
+        bool ended = false;
+        for (int tries = 0; tries < 100 && !ended; tries++) { // ~1 s ceiling
+            XrEventDataBuffer ev = { XR_TYPE_EVENT_DATA_BUFFER };
+            while (xrPollEvent(sInstance, &ev) == XR_SUCCESS) {
+                if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+                    const auto* sc = (const XrEventDataSessionStateChanged*)&ev;
+                    if (sc->state == XR_SESSION_STATE_STOPPING) {
+                        xrEndSession(sSession);
+                        ended = true;
+                    } else if (sc->state == XR_SESSION_STATE_EXITING || sc->state == XR_SESSION_STATE_IDLE) {
+                        ended = true;
+                    }
+                }
+                ev = { XR_TYPE_EVENT_DATA_BUFFER };
+            }
+            if (!ended) {
+                Sleep(10);
+            }
+        }
+    }
     if (sPtLayer != XR_NULL_HANDLE && pfnDestroyPassthroughLayer) { pfnDestroyPassthroughLayer(sPtLayer); sPtLayer = XR_NULL_HANDLE; }
     if (sPassthrough != XR_NULL_HANDLE && pfnDestroyPassthrough)  { pfnDestroyPassthrough(sPassthrough);  sPassthrough = XR_NULL_HANDLE; }
     sHasPassthrough = false;
