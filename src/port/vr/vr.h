@@ -60,9 +60,10 @@ int  vr_eye_height(int eye);
 // this for the game's perspective projection load; SF64's camera lives on the modelview stack, so the
 // composition is v_obj * modelview(incl. camera) * A * V_head * P_eye.
 const float* vr_eye_viewproj(int eye);
-// Rotation-only sky view-projection for an eye (16 floats, row-vector). Reserved for a world-anchored
-// sky dome (not built yet - vr_sky_dome_active() returns false and the pre-3D 2D background rides the
-// full-FOV head-locked plane instead).
+// ZERO-SEPARATION eye view-projection (16 floats, row-vector): identical to vr_eye_viewproj in
+// every term except the eye position is the shared head centre - no per-eye IPD offset. The
+// interpreter substitutes it for the game-registered SKY perspective load (vr_sky_persp_match),
+// so the sky fuses at infinity while the world keeps full stereo.
 const float* vr_sky_viewproj(int eye);
 // The game-sky angular half-extents (radians) the renderer's per-vertex sky remap would read back;
 // reserved with sane defaults until a dome is built.
