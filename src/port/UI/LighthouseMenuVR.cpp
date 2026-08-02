@@ -88,6 +88,22 @@ void LighthouseMenu::AddMenuVR() {
             "Whether the right stick may pitch the First Person view up/down. Off = vertical stays "
             "on your head only; the stick still turns left/right either way."));
 
+    AddWidget(path, "Flip Cam", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRFpFlipCam")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "The view somersaults with Banjo in First Person: a full turn on the flip jump (Z then A) "
+            "and a tuck into the beak buster (A then Z), driven by the move's own animation so it "
+            "matches exactly. Turn off to keep the view level through every move."));
+
+    AddWidget(path, "Underwater A Dashes", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRSwimADash")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "Swaps the two underwater strokes so A is the fast beak dash and B the slow controlled "
+            "paddle. Off restores the stock layout (A paddles, B dashes). Diving from the surface "
+            "is always A either way."));
+
     AddWidget(path, "Immersive Camera", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpImmersive")
         .RaceDisable(false)

@@ -73,6 +73,8 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRImGuiOpacity", 0.95f);
     CVarSetInteger("gVRFpViewBob", 0);
     CVarSetInteger("gVRFpVerticalLook", 1);
+    CVarSetInteger("gVRFpFlipCam", 1);
+    CVarSetInteger("gVRSwimADash", 1);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
     CVarSetInteger("gVRFpSwimFollow", 1);
@@ -114,6 +116,7 @@ struct VrPage {
 static const VrRow kRowsView[] = {
     { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",        1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
     { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
+    { "SWIM A DASH", ROW_INT01, "gVRSwimADash",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "UNDERWATER A IS THE FAST DASH AND B THE SLOW PADDLE." },
     { "WORLD SCALE", ROW_FLOAT, "gVRWorldScale",      5.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "GAME UNITS PER METRE. LOWER MAKES THE WORLD BIGGER." },
     { "STEREO",      ROW_FLOAT, "gVRStereo",          0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
     { "EYE HEIGHT",  ROW_FLOAT, "gVREyeHeight",       0.05f, -1.5f, 1.5f, -1.09f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN THIRD PERSON." },
@@ -152,6 +155,7 @@ static const VrRow kRowsFp[] = {
     { "LEAN",          ROW_FLOAT, "gVRHeadScale",            0.05f, 0.0f, 1.5f, 0.1f, NULL, NULL, -1, "HOW MUCH YOUR REAL BODY MOVEMENT MOVES THE CAMERA." },
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },
     { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
+    { "FLIP CAM",      ROW_INT01, "gVRFpFlipCam",            1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW SOMERSAULTS WITH FLIP JUMPS AND BEAK BUSTERS." },
     { "INVERT LOOK X", ROW_INT01, "gVRFpInvertX",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT STICK LOOK." },
     { "EYE FORWARD",   ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "EYE RAISE",     ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },

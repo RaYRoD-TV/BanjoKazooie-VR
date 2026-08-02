@@ -139,6 +139,8 @@ static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m
                                             // of you rather than a world you happen to be huge in.
 static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front of you (Diorama)
 static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
+static float sFlipRad            = 0.0f;    // first person flip cam: eye-view pitch, radians (0 = upright)
+static float sFlipTargetRad      = 0.0f;    // ...and where it is heading, set per game tick
 static float sMenuOpacity        = 0.85f;   // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
 static float sImGuiOpacity       = 0.95f;   // settings (ImGui) menu opacity - its OWN knob, decoupled from the panel
 
@@ -362,6 +364,24 @@ static void mat_view_from_pose(float m[4][4], XrPosef pose) {
     m[3][3] = 1.0f;
 }
 
+// FLIP CAM: post-multiply an eye-space PITCH onto a view matrix, so the whole view somersaults with
+// Banjo (V' = V * Rx). Eye-side, so it is orthogonal to head tracking - you keep looking around
+// normally while the world turns over. No-op at rest and outside first person, which is what keeps
+// third person and the tabletop diorama untouched.
+static void mat_flip_apply(float V[4][4]) {
+    if (sFlipRad == 0.0f || sViewMode != 1) {
+        return;
+    }
+    const float cp = cosf(sFlipRad), sp = sinf(sFlipRad);
+    float Rx[4][4] = { { 0 } };
+    Rx[0][0] = 1.0f; Rx[3][3] = 1.0f;
+    Rx[1][1] = cp;   Rx[1][2] = sp;
+    Rx[2][1] = -sp;  Rx[2][2] = cp;
+    float out[4][4];
+    mat_mul(out, V, Rx);
+    memcpy(V, out, sizeof(out));
+}
+
 // Build sEyeVP[eye] = A (camera-space game units -> meters, with eye-height offset) * V (world->eye,
 // meters) * P (eye projection). The renderer composes it after the game's world->camera lookAt:
 //   P_matrix_vr = lookAt_game * sEyeVP[eye]
@@ -476,6 +496,7 @@ static void vr_build_eye_matrix(int eye) {
 
     float V[4][4], P[4][4], AV[4][4];
     mat_view_from_pose(V, pose);
+    mat_flip_apply(V); // first person flip cam: the whole eye view rotates with Banjo's somersault
     mat_proj_fov(P, fov, zn, zf);
     mat_mul(AV, A, V);
     mat_mul(sEyeVP[eye], AV, P);
@@ -507,6 +528,10 @@ static void vr_build_eye_matrix(int eye) {
         Asky[0][0] = invLife; Asky[1][1] = invLife; Asky[2][2] = invLife; Asky[3][3] = 1.0f;
         float Vsky[4][4], Psky[4][4], AVsky[4][4];
         mat_view_from_pose(Vsky, skyPose);
+        // The sky takes the SAME flip rotation as the world. Leave it out and the world somersaults
+        // while the sky hangs still, which reads as the sky sliding around the level - the sm64 port
+        // hit exactly that and rotates its dome with the eye for the same reason.
+        mat_flip_apply(Vsky);
         mat_proj_fov(Psky, fov, zn, zf);
         mat_mul(AVsky, Asky, Vsky);
         mat_mul(sSkyVP[eye], AVsky, Psky);
@@ -596,6 +621,7 @@ static void vr_build_eye_matrix(int eye) {
 }
 
 static void vr_sync_tunables(void); // defined next to vr_begin_frame; the harness needs it too
+static void vr_flip_ease(void);     // likewise: the harness is its own per-frame heartbeat
 
 // ---- headless verification seam ----------------------------------------------
 // Build the same matrices vr_build_eye_matrix would for an identity head pose with a symmetric
@@ -608,6 +634,9 @@ static void vr_sync_tunables(void); // defined next to vr_begin_frame; the harne
 extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16], float hudVP[16],
                                         float hudFlatVP[16], float full2D[16]) {
     vr_sync_tunables(); // so eye dumps reflect the CVars, not the compile-time defaults
+    if (eye == 0) {
+        vr_flip_ease(); // the harness's per-frame heartbeat: same flip-cam ease as the live path
+    }
     XrFovf fov;
     fov.angleLeft = -0.8727f;
     fov.angleRight = 0.8727f;
@@ -673,6 +702,7 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     float zf = 2000.0f * CVarGetFloat("gVRDrawDistance", 4.0f);
     float V[4][4], P[4][4], AV[4][4];
     mat_view_from_pose(V, pose);
+    mat_flip_apply(V); // faithful twin of the live build, flip cam included
     mat_proj_fov(P, fov, 0.05f, zf);
     float out[4][4];
     mat_mul(AV, A, V);
@@ -1506,6 +1536,24 @@ extern "C" void vr_recenter(void) {
     sRecenterRequest = true;
 }
 
+// FLIP CAM target angle, fed once per GAME tick from the state machine's animation clock. Only the
+// TARGET lands here; the eased value follows it per HEADSET frame (vr_flip_ease, called from
+// vr_begin_frame). The game ticks far slower than the headset renders, so easing at tick rate would
+// leave the somersault stair-stepped in the rendered frames - the ease has to run where the frames
+// are. (Same treatment, same reason, as the sm64 port's flip cam.)
+extern "C" void vr_set_flip_angle(float radians) {
+    sFlipTargetRad = radians;
+}
+
+// Per headset frame: follow the target, and snap when close so the view settles dead level between
+// flips instead of creeping.
+static void vr_flip_ease(void) {
+    sFlipRad += (sFlipTargetRad - sFlipRad) * 0.22f;
+    if (fabsf(sFlipTargetRad - sFlipRad) < 0.0008f) {
+        sFlipRad = sFlipTargetRad;
+    }
+}
+
 extern "C" void vr_set_hud_menu_mode(int on) {
     sHudMenuMode = on ? 1 : 0;
 }
@@ -1584,6 +1632,8 @@ extern "C" void vr_begin_frame(void) {
     vr_poll_events();
 
     vr_sync_tunables();
+
+    vr_flip_ease(); // first person flip cam: follow the game's flip angle at the headset's frame rate
 
     // Mixed Reality toggle. Resume/pause the passthrough layer to match (it is created RUNNING, but MR
     // defaults OFF, so the first frame pauses it). Only meaningful when the runtime supports passthrough.
@@ -2284,5 +2334,6 @@ extern "C" void  vr_controller_stick(int hand, float out[2]) { (void) hand; out[
 extern "C" void  vr_controller_rumble(float strength, float seconds) { (void) strength; (void) seconds; }
 extern "C" void  vr_controller_rumble_stop(void) {}
 extern "C" void  vr_shutdown(void) {}
+extern "C" void  vr_set_flip_angle(float radians) { (void)radians; }
 
 #endif

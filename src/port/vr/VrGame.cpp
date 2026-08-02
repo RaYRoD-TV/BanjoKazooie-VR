@@ -28,6 +28,10 @@ bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
 bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
+// The player's animation clock, for the flip cam. AnimCtrl is opaque here - only the normalized
+// 0..1 position matters, and C linkage cares about the name, not the pointer's type.
+void* baanim_getAnimCtrlPtr(void);
+f32   anctrl_getAnimTimer(void* animCtrl);
 
 // Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
 // MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
@@ -737,29 +741,41 @@ extern "C" int port_vrImGuiMenuVisible(void) {
 
 extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY);
 
-// Underwater, A IS the fast stroke. The game puts the quick flipper kick on B and a slow wing
-// paddle on A, but "go faster" lives on A in every VR player's thumb memory. In the dive states A
-// becomes B; B itself is untouched, so either button kicks. Only the dive family remaps - at the
-// surface the real A must survive, because that press is the dive itself. Idempotent, so both
-// call sites below may run in one tick. Every term of the gate is LIVE: machine ticked this
-// window, water flag current, state in the dive family, real gameplay mode (demos are 6/7,
-// pause is 4). The first shipped version gated only on "not paused" and ate every A press on the
-// save select screen after a water death - the stale-state ghost, round 23's law, biting its
-// own author.
-static void SwimFastRemap(OSContPad* pad) {
+// Underwater the game gives you TWO strokes, and both matter: B is the beak DASH (bsbdiveb kicks
+// a 600-unit velocity impulse that decays) and A is the slow controlled PADDLE (bsswim_divea
+// holds a steady 120). Dashing is how you cross open water; paddling is how you line up a note
+// without overshooting it.
+//
+// VR wants the dash on A - reaching for B mid-swim feels wrong with the thumb already holding a
+// stroke - so the two buttons SWAP in the dive states. The first version was a one-way A -> B
+// remap, which handed the dash to both buttons and deleted the paddle entirely: the precise
+// stroke simply stopped existing (reported from the field within a day). A swap keeps the pair
+// intact, just relabelled: A dashes, B paddles.
+//
+// NOT IDEMPOTENT - that is why this runs exactly ONCE per tick, from the wrapper below, after
+// every input source has merged. Applying a swap twice restores the original mapping, so the old
+// two-call-site shape (safe for a one-way remap) would silently undo itself here.
+//
+// Every term of the gate is LIVE: machine ticked this window, water flag current, state in the
+// dive family, real gameplay mode. Surface states are not in that family, so the surface A press
+// - which IS the dive - is untouched. The first shipped version gated only on "not paused" and
+// ate every A press on the save select screen after a water death: the stale-state ghost.
+static void SwimButtonSwap(OSContPad* pad) {
+    if (CVarGetInteger("gVRSwimADash", 1) == 0) {
+        return; // stock layout: A paddles, B dashes
+    }
     if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL || !player_inWater() ||
         !bsbswim_inSet(bs_getState())) {
         return;
     }
-    if (pad->button & A_BUTTON) {
-        pad->button = (u16)((pad->button & ~A_BUTTON) | B_BUTTON);
-    }
+    const u16 held = pad->button;
+    const u16 swapped = (u16)((held & ~(A_BUTTON | B_BUTTON)) | ((held & A_BUTTON) ? B_BUTTON : 0) |
+                              ((held & B_BUTTON) ? A_BUTTON : 0));
+    pad->button = swapped;
 }
 
-extern "C" void VrGame_MergePad(OSContPad* pad) {
-    if (pad == NULL) {
-        return;
-    }
+// The merge itself. Wrapped (see VrGame_MergePad) so the swim swap lands once, after every source.
+static void MergePadSources(OSContPad* pad) {
     // The freshness window ages HERE, once per input tick, before anything consults it below.
     if (sBsFresh > 0) {
         sBsFresh--;
@@ -800,8 +816,6 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
         pad->right_stick_y = 0;
         return;
     }
-    // Remap BEFORE the motion-controller early-outs so a plain gamepad gets it too...
-    SwimFastRemap(pad);
     if (!vr_controllers_active() || CVarGetInteger("gVRMotionControls", 1) == 0) {
         return;
     }
@@ -874,17 +888,68 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     vr_controller_stick(0, ls);
     mergeAxis((int8_t)(ls[0] * 80.0f), pad->stick_x);
     mergeAxis((int8_t)(ls[1] * 80.0f), pad->stick_y);
+}
 
-    // ...and AFTER the VR bits land, so a motion-controller A press remaps as well.
-    SwimFastRemap(pad);
+// Every input source merges first, THEN the swim swap - one application, whatever the pad is and
+// whichever early-out the merge took (gamepad only, motion controllers, overlay open). A swap
+// applied a second time is a swap undone, so there is exactly this one call site.
+extern "C" void VrGame_MergePad(OSContPad* pad) {
+    if (pad == NULL) {
+        return;
+    }
+    MergePadSources(pad);
+    SwimButtonSwap(pad);
 }
 
 // Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU
 // content, so it switches to the SCREEN knobs - the HUD size/dist sliders stop moving the menus.
+// FLIP CAM: how far the view is turned over RIGHT NOW, straight off the move's own animation clock
+// (radians, positive = nose down). Not a timer of ours and not a canned spin - the view turns
+// exactly as fast as Banjo turns, so it stays glued to the move at any frame rate, and a move cut
+// short (landing early, taking a hit) simply stops driving it and the eye eases level.
+//
+//   FLIP JUMP (Z then A) - a full BACKWARD somersault, so a full turn backwards over the anim's
+//   active range. It ends on 360, which is upright: the view arrives home by finishing the flip,
+//   not by being snapped back.
+//   BEAK BUSTER (A then Z) - a forward tuck into a beak-down plunge. The tuck is the first third of
+//   the animation; past it the angle simply HOLDS nose-down, which is where Banjo's head actually
+//   is for the whole fall, and the state ending on impact releases it.
+static float VrFlipAngleRad(void) {
+    if (vr_get_view_mode() != VR_VIEW_FIRST_PERSON || CVarGetInteger("gVRFpFlipCam", 1) == 0) {
+        return 0.0f;
+    }
+    if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {
+        return 0.0f;
+    }
+    const s32 st = bs_getState();
+    if (st != BS_12_BFLIP && st != BS_F_BBUSTER) {
+        return 0.0f;
+    }
+    void* anim = baanim_getAnimCtrlPtr();
+    if (anim == NULL) {
+        return 0.0f;
+    }
+    const f32 t = anctrl_getAnimTimer(anim);
+    const float kDeg2Rad = 0.01745329252f;
+    if (st == BS_12_BFLIP) {
+        // bsbflip_init runs ASSET_4B_ANIM_BSBFLIP_ENTER over the sub-range 0 .. 0.7866.
+        float p = t / 0.7866f;
+        if (p < 0.0f) { p = 0.0f; }
+        if (p > 1.0f) { p = 1.0f; }
+        return -360.0f * p * kDeg2Rad; // backward
+    }
+    // bsbbuster_init runs ASSET_1D_ANIM_BSBBUSTER over the sub-range 0 .. 0.35 (the tuck).
+    float p = t / 0.35f;
+    if (p < 0.0f) { p = 0.0f; }
+    if (p > 1.0f) { p = 1.0f; } // past the tuck: hold nose-down through the plunge
+    return 90.0f * p * kDeg2Rad; // forward
+}
+
 extern "C" void VrGame_SyncFrame(void) {
     sVrTick++;              // freshness clock for the sky-pass Mtx registry
     VrGame_SampleMouse();   // one mouse sample per tick; look paths consume it once
     vr_set_hud_menu_mode(getGameMode() == GAME_MODE_4_PAUSED || port_vrNativeMenu_isOpen());
+    vr_set_flip_angle(VrFlipAngleRad()); // flip cam target; vr.cpp eases it at the headset's rate
 
     // --- head translation scale, including the ANTI-CLIP wall clamp ---------------------------
     // Physical lean is what pushes the eye through walls: the game collides its CAMERA and knows
