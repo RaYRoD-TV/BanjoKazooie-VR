@@ -26,6 +26,21 @@ void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot 
 void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
+bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
+
+// Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
+// MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
+// gameplay ENDS (both reset only inside bsmethods_reset, on the NEXT spawn), and the file select
+// screen runs at GAME_MODE_3_NORMAL - measured, not assumed - so neither the mode nor those
+// globals can tell "swimming" from "staring at the save screen with a drowned corpse's state".
+// Only the tick stamp can: no live player, no stamp, and the window dies in 3 input ticks.
+static int sBsFresh = 0;
+extern "C" void port_vrBsTicked(void) {
+    sBsFresh = 3;
+}
+static bool BsStateIsLive(void) {
+    return sBsFresh > 0;
+}
 void playerPosition_get(f32 dst[3]);
 bool player_isStable(void); // standing on ground
 void controller_getRightStick(s32 controller_index, f32 dst[2]); // merged pad right stick, normalized +-1
@@ -484,7 +499,7 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     // a damped dip on landing, driven by the body's REAL motion so it reads as self-motion rather
     // than camera waggle. Amplitudes are centimetres at life scale - presence cues, kept far under
     // the vection threshold, and off entirely in menus or while airborne.
-    if (CVarGetInteger("gVRFpViewBob", 1) != 0) {
+    if (CVarGetInteger("gVRFpViewBob", 0) != 0) {
         static float sBobPhase = 0.0f;
         static float sPrevPos[3] = { 0.0f, 0.0f, 0.0f };
         static bool sPrevPosValid = false;
@@ -555,11 +570,17 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         f32 pr[3];
         player_getRotation(pr);
         float dyaw = fmodf(pr[1] - sPrevPlayerYaw + 540.0f, 360.0f) - 180.0f;
-        // UNDERWATER only (the dive state family): surface paddling steers gently and the follow
-        // there read as the view being dragged. And the follow is CAPPED per tick - matching his
-        // full turn rate 1:1 was way too sensitive; 2.5 degrees a tick (~75 deg/s) tracks a real
-        // swim turn while staying under the vection threshold.
-        if (sPrevYawValid && player_inWater() && bsbswim_inSet(bs_getState()) &&
+        // UNDERWATER only. The dive-family state check alone was NOT enough: the surface strokes
+        // run THROUGH genuine dive states (bsbdiveb/bsswim_divea eject to SWIM_IDLE only via the
+        // near-surface check, so every B stroke at the surface is a few ticks of BS_2C_DIVE_B),
+        // which engaged the follow in bursts while steering - "the left stick auto-turns at the
+        // surface", reported twice. The state machine's OWN boundary predicate (func_802A73BC,
+        // the same call it uses to leave the dive states near the surface) is the missing term:
+        // follow only when genuinely submerged AWAY from the surface. Liveness-stamped like every
+        // bs-state consumer (round 31). The follow stays CAPPED per tick - 2.5 degrees (~75
+        // deg/s) tracks a real swim turn while staying under the vection threshold.
+        if (sPrevYawValid && BsStateIsLive() && player_inWater() && bsbswim_inSet(bs_getState()) &&
+            !func_802A73BC() &&
             CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
@@ -679,20 +700,6 @@ extern "C" int port_vrImGuiMenuVisible(void) {
 }
 
 extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY);
-
-// Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
-// MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
-// gameplay ENDS (both reset only inside bsmethods_reset, on the NEXT spawn), and the file select
-// screen runs at GAME_MODE_3_NORMAL - measured, not assumed - so neither the mode nor those
-// globals can tell "swimming" from "staring at the save screen with a drowned corpse's state".
-// Only the tick stamp can: no live player, no stamp, and the window dies in 3 input ticks.
-static int sBsFresh = 0;
-extern "C" void port_vrBsTicked(void) {
-    sBsFresh = 3;
-}
-static bool BsStateIsLive(void) {
-    return sBsFresh > 0;
-}
 
 // Underwater, A IS the fast stroke. The game puts the quick flipper kick on B and a slow wing
 // paddle on A, but "go faster" lives on A in every VR player's thumb memory. In the dive states A

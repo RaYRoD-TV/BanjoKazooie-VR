@@ -70,8 +70,8 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRDioramaDist", 0.05f);
     CVarSetFloat("gVRDioramaHeight", -0.4f);
     CVarSetFloat("gVRMenuOpacity", 0.85f);
-    CVarSetFloat("gVRImGuiOpacity", 0.85f);
-    CVarSetInteger("gVRFpViewBob", 1);
+    CVarSetFloat("gVRImGuiOpacity", 0.95f);
+    CVarSetInteger("gVRFpViewBob", 0);
     CVarSetInteger("gVRFpVerticalLook", 1);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
@@ -87,7 +87,8 @@ static void RowDefaults(void) {
     CVarSetInteger("gVRFogMode", 1);
     CVarSetFloat("gVRFogNear", 60.0f);
     CVarSetFloat("gVRFogFar", 250.0f);
-    CVarSetFloat("gVRDrawDistance", 1.0f);
+    CVarSetFloat("gVRDrawDistance", 4.0f);
+    CVarSetInteger("gMSAAValue", 4);
     CVarSetInteger("gVRDisableCulling", 1);
     CVarSetInteger("gVRCutscenes", 0);
     CVarSetInteger("gVRPassthrough", 0);
@@ -171,7 +172,7 @@ static const VrRow kRowsRender[] = {
     { "FOG",          ROW_ENUM,  "gVRFogMode",        1.0f, 0.0f, 2.0f, 1.0f, NULL, kFogModeNames, -1, "WORLD FOG IS FIXED FOR VR. STOCK IS THE OLD ONE." },
     { "FOG START",    ROW_FLOAT, "gVRFogNear",        5.0f, 1.0f, 400.0f, 60.0f, NULL, NULL, -1, "METRES WHERE FOG BEGINS." },
     { "FOG FULL",     ROW_FLOAT, "gVRFogFar",         10.0f, 2.0f, 1200.0f, 250.0f, NULL, NULL, -1, "METRES WHERE FOG IS FULLY THICK." },
-    { "DRAW DIST",    ROW_FLOAT, "gVRDrawDistance",   0.1f, 1.0f, 4.0f, 1.0f, NULL, NULL, -1, "FAR CLIP MULTIPLIER. 1 ALREADY COVERS EVERY LEVEL." },
+    { "DRAW DIST",    ROW_FLOAT, "gVRDrawDistance",   0.1f, 1.0f, 4.0f, 4.0f, NULL, NULL, -1, "FAR CLIP MULTIPLIER. 1 ALREADY COVERS EVERY LEVEL." },
     { "CULLING OFF",  ROW_INT01, "gVRDisableCulling", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DRAWS BOTH SIDES OF WALLS. FILLS VR SEE THROUGH GAPS." },
     { "ANTI CLIP",    ROW_INT01, "gVRAntiClip",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "STOPS LEANING PUSHING YOUR HEAD THROUGH WALLS." },
     { "CUTSCENES 3D", ROW_INT01, "gVRCutscenes",      1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "WATCH CUTSCENES IN STEREO INSTEAD OF ON THE SCREEN." },
@@ -184,8 +185,8 @@ static const VrRow kRowsSystem[] = {
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },
     { "MENU OPACITY",  ROW_FLOAT,  "gVRMenuOpacity",    0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
-    { "SETTINGS MENU", ROW_FLOAT,  "gVRImGuiOpacity",   0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
-    { "VIEW BOB",      ROW_INT01,  "gVRFpViewBob",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
+    { "SETTINGS MENU", ROW_FLOAT,  "gVRImGuiOpacity",   0.05f, 0.3f, 1.0f, 0.95f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
+    { "VIEW BOB",      ROW_INT01,  "gVRFpViewBob",      1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
     { "RECENTER",      ROW_ACTION, NULL, 0, 0, 0, 0, RowRecenter, NULL, -1, "BRINGS THE WORLD SQUARE TO WHERE YOU ARE LOOKING." },
     { "VR DEFAULTS",   ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
     { "RESUME",        ROW_ACTION, NULL, 0, 0, 0, 0, RowResume, NULL, -1, "CLOSES THIS MENU AND RETURNS TO THE PAUSE SCREEN." },

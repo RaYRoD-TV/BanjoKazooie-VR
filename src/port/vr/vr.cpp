@@ -140,6 +140,7 @@ static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m
 static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front of you (Diorama)
 static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
 static float sMenuOpacity        = 0.85f;   // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
+static float sImGuiOpacity       = 0.95f;   // settings (ImGui) menu opacity - its OWN knob, decoupled from the panel
 
 // World-distance fog for the stereo modes (gVRFogMode = 1). Near/far are METERS AT LIFE SIZE (the default
 // 100 game-units-per-meter mapping), so the fogged distance stays anchored to the WORLD - changing a view
@@ -456,7 +457,7 @@ static void vr_build_eye_matrix(int eye) {
     // of the biggest Banjo world at life size, so no in-game geometry ever hits it; the near plane sits
     // at 5 cm (headsets cannot focus closer, and the extra depth precision goes where geometry lives).
     float zn = 0.05f;
-    float drawDistMul = CVarGetFloat("gVRDrawDistance", 1.0f);
+    float drawDistMul = CVarGetFloat("gVRDrawDistance", 4.0f); // max headroom by default - nothing in the game clips either way
     if (drawDistMul < 1.0f) drawDistMul = 1.0f;
     float zf = 2000.0f * drawDistMul;
 
@@ -667,7 +668,9 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     pose.position.y = 0.0f;
     pose.position.z = 0.0f;
 
-    float zf = 2000.0f;
+    // Mirror the live far plane (same CVar, same default) - the synth path must stay a faithful
+    // twin of the live construction or the harness tests a different frustum than players get.
+    float zf = 2000.0f * CVarGetFloat("gVRDrawDistance", 4.0f);
     float V[4][4], P[4][4], AV[4][4];
     mat_view_from_pose(V, pose);
     mat_proj_fov(P, fov, 0.05f, zf);
@@ -1566,6 +1569,7 @@ static void vr_sync_tunables(void) {
     sDioramaDist        = CVarGetFloat("gVRDioramaDist",      sDioramaDist);
     sDioramaHeight      = CVarGetFloat("gVRDioramaHeight",    sDioramaHeight);
     sMenuOpacity        = CVarGetFloat("gVRMenuOpacity",      sMenuOpacity);
+    sImGuiOpacity       = CVarGetFloat("gVRImGuiOpacity",     sImGuiOpacity);
     sFogMode            = CVarGetInteger("gVRFogMode",        sFogMode);
     if (sFogMode < 0) sFogMode = 0; else if (sFogMode > 2) sFogMode = 2;
     sFogNearM           = CVarGetFloat("gVRFogNear",          sFogNearM);
@@ -1936,9 +1940,9 @@ extern "C" void vr_menu_apply_opacity(void) {
     // The ImGui/Enhancements (settings) menu has its OWN opacity (gVRImGuiOpacity), DECOUPLED from the
     // game's VR pause-menu/HUD panel opacity (gVRMenuOpacity) - so making the pause panel see-through no
     // longer dims this settings menu. Defaults opaque (1.0). Fresh CVar read (cache refreshes after this).
-    // Default slightly see-through: this settings menu had its own opacity CVar with a hardcoded
-    // opaque default and NO slider anywhere, which is why "menu transparency" never applied here.
-    float op = CVarGetFloat("gVRImGuiOpacity", 0.85f);
+    // Default just barely see-through (0.95): 0.85 read as "too transparent" for a menu whose
+    // whole job is small readable text - the game showing through is a hint here, not a feature.
+    float op = CVarGetFloat("gVRImGuiOpacity", 0.95f);
     if (op < 0.3f) op = 0.3f;
     if (op > 0.999f) return; // fully opaque: keep the FBO's cleared alpha (1.0) as-is
     glBindFramebuffer(GL_FRAMEBUFFER, sMenuFbo);
@@ -2079,10 +2083,13 @@ extern "C" void vr_submit(void) {
         if (sPanelMode) {
             // Menu / non-gameplay flat panel: world-locked quad anchored in front of you. Drawn ON TOP of the
             // game projection layer when one exists, so the menu floats over the live world. When there IS a
-            // game behind it (haveEyes) and the menu is set see-through (gVRMenuOpacity < 1), blend on
-            // the panel's source alpha (vr_menu_apply_opacity wrote that alpha) so the race shows through;
-            // otherwise keep it an opaque virtual screen (Theater / title have nothing behind to blend with).
-            hudQuad.layerFlags = (haveEyes && sMenuOpacity < 0.999f) ? kBlend : 0;
+            // game behind it (haveEyes), the panel content is the SETTINGS (ImGui) menu, whose alpha
+            // vr_menu_apply_opacity wrote from gVRImGuiOpacity - so THAT knob gates the blend. The old gate
+            // read the PAUSE-PANEL knob (gVRMenuOpacity): set that one to 1.0 and the settings slider went
+            // dead ("the ImGui opacity slider should work in VR" - it was gated on the wrong variable).
+            // Without eyes (Theater / title) the panel stays an opaque virtual screen: the game content's
+            // own alpha channel is not ours and blending on it would punch holes in the screen.
+            hudQuad.layerFlags = (haveEyes && sImGuiOpacity < 0.999f) ? kBlend : 0;
             hudQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             hudQuad.subImage.swapchain = sHud.handle;
             hudQuad.subImage.imageRect.offset.x = 0;

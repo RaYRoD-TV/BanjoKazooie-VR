@@ -1675,13 +1675,19 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                     // resolves a consistent (pos, delta, down) triple for the widgets it builds.
                     ImGui::GetIO().AddMousePosEvent(vrMouseX, vrMouseY);
                     ImGui::GetIO().AddMouseButtonEvent(0, sVrPointerHeld);
-                    // ...and claim the OS cursor. While the game window holds focus the SDL backend
-                    // queues the REAL mouse position after ours and simply wins, which left the
-                    // cursor pinned to the physical mouse and the stick doing nothing. WantSetMousePos
-                    // makes the backend warp the OS cursor onto our point before it reads it back,
-                    // so its own feed now agrees with the stick instead of fighting it.
-                    ImGui::GetIO().MousePos = ImVec2(vrMouseX, vrMouseY);
-                    ImGui::GetIO().WantSetMousePos = true;
+                    // ...and claim the OS cursor - but ONLY while the game window actually holds OS
+                    // focus. Focused, the SDL backend queues the REAL mouse position after ours and
+                    // simply wins, so WantSetMousePos warps the OS cursor onto our point to make the
+                    // backend agree with the stick. UNFOCUSED there is nothing to fight (the backend
+                    // does not queue the real mouse), and that warp was the "menu steals my mouse"
+                    // report: it dragged the desktop cursor into the game window while other apps
+                    // were in use, and the next click landed in the game and pulled window focus too.
+                    if (SDL_GetKeyboardFocus() != NULL) {
+                        ImGui::GetIO().MousePos = ImVec2(vrMouseX, vrMouseY);
+                        ImGui::GetIO().WantSetMousePos = true;
+                    } else {
+                        ImGui::GetIO().WantSetMousePos = false;
+                    }
                 }
                 if (!sVrMenuNavArmed) {
                     sVrMenuNavArmed = true;
@@ -1694,6 +1700,18 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                 ImGui::GetIO().KeyRepeatRate = 0.05f;
                 sVrMenuNavArmed = false;
             }
+            // Same live MSAA sync as the flat branch below - the eye passes render at this level.
+            // Seed the CVar once so the settings combobox displays the real default instead of "Off".
+            {
+                static bool sMsaaSeeded = false;
+                if (!sMsaaSeeded) {
+                    sMsaaSeeded = true;
+                    if (CVarGetInteger("gMSAAValue", 0) == 0) {
+                        CVarSetInteger("gMSAAValue", 4);
+                    }
+                }
+            }
+            interpreter->SetMsaaLevel((uint32_t)CVarGetInteger("gMSAAValue", 4));
             gui->StartDraw();
             // Nothing is forced after StartDraw. Gui::StartDraw calls DrawMenu, so every widget
             // samples the mouse INSIDE it - anything written afterwards lands a frame late and
@@ -1777,6 +1795,19 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             auto runT0 = Clock::now();
             auto gui = wndBase->GetGui();
             wndBase->GetMouseStateManager()->StartFrame();
+            // Anti-aliasing, live from the CVar (default 4x): the framework reads gMSAAValue once
+            // at init, so a slider change never landed without this per-frame sync. Applies to the
+            // flat window here and to both eye passes in the VR branch above.
+            {
+                static bool sMsaaSeeded = false;
+                if (!sMsaaSeeded) {
+                    sMsaaSeeded = true;
+                    if (CVarGetInteger("gMSAAValue", 0) == 0) {
+                        CVarSetInteger("gMSAAValue", 4);
+                    }
+                }
+            }
+            interpreter->SetMsaaLevel((uint32_t)CVarGetInteger("gMSAAValue", 4));
             gui->StartDraw();
             interpreter->StartFrame();
 #if defined(ENABLE_VR) && defined(_WIN32)

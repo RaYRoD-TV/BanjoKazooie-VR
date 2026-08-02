@@ -216,9 +216,24 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Draw Distance", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDrawDistance")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(1.0f).Max(4.0f).Step(0.1f).DefaultValue(1.0f).Tooltip(
+        .Options(FloatSliderOptions().Min(1.0f).Max(4.0f).Step(0.1f).DefaultValue(4.0f).Tooltip(
             "Multiplies the far clip plane. The base is already 2 km - ten times the biggest world - "
-            "so nothing in the game ever clips at 1.0; the headroom exists for romhacks."));
+            "so nothing in the game ever clips even at 1.0; maxed by default because the headroom "
+            "is free."));
+
+    AddWidget(path, "Anti-Aliasing (MSAA)", WIDGET_CVAR_COMBOBOX)
+        .CVar("gMSAAValue")
+        .RaceDisable(false)
+        .Options(ComboboxOptions()
+                     .Tooltip("Multisampling for the headset eyes and the flat window alike. The eye "
+                              "render used to ship without it, which is why edges crawled in VR while "
+                              "the desktop looked fine.")
+                     .ComboMap({
+                         { 1, "Off" },
+                         { 2, "2x" },
+                         { 4, "4x" },
+                         { 8, "8x" },
+                     }));
 
     AddWidget(path, "Menu Pointer Speed", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRPointerSpeed")
@@ -281,16 +296,16 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Settings Menu Opacity", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRImGuiOpacity")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(0.3f).Max(1.0f).Step(0.05f).DefaultValue(0.85f).Tooltip(
+        .Options(FloatSliderOptions().Min(0.3f).Max(1.0f).Step(0.05f).DefaultValue(0.95f).Tooltip(
             "How solid THIS settings menu looks in the headset. Separate from the game menus so "
             "you can keep the game readable behind it while tuning."));
 
     AddWidget(path, "First Person View Bob", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpViewBob")
         .RaceDisable(false)
-        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
             "A small stride bob while walking and a dip on landing, driven by Banjo's real motion. "
-            "Centimetres, not camera waggle - turn off if you prefer a perfectly still base."));
+            "Centimetres, not camera waggle - off by default; turn on if you like the extra life."));
 
     AddWidget(path, "Stereo Cutscenes", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRCutscenes")
