@@ -189,8 +189,15 @@ static float sPanelAnchorQy = 0.0f, sPanelAnchorQw = 1.0f;
 // dropped entirely when the runtime itself recenters (its new LOCAL space supersedes ours).
 static bool  sRecenterSet = false;
 static bool  sRecenterRequest = false;
+static bool  sAutoRecentered = false;    // one automatic recenter at the first FOCUSED frame
 static float sRcQy = 0.0f, sRcQw = 1.0f; // conjugate of the captured head yaw twist
-static float sRcPos[2] = { 0, 0 };       // captured head x/z (height stays real-world)
+static float sRcPos[3] = { 0, 0, 0 };    // captured head x/Y/z - height included: runtimes disagree
+                                         // about where LOCAL's origin sits (eye level, floor, a
+                                         // standing calibration), and every eye-height default was
+                                         // tuned assuming origin = the player's eyes. Recentering
+                                         // the height makes the defaults mean the same thing on
+                                         // every setup ("all three modes start in the ground" was
+                                         // a seated player under a standing-height origin).
 
 // Head-locked HUD plane: the in-game 2D HUD (item box, positions, lap, etc.) is repositioned in the eye
 // render onto a view-space quad so it sits at a comfortable distance instead of at your face. Built per
@@ -1568,6 +1575,15 @@ extern "C" void vr_begin_frame(void) {
             // In-game recenter: capture from the RAW runtime pose (before any correction), so the
             // stored remap is absolute and repeated recenters can't compound. Yaw twist = the
             // normalized (y, w) of the head quaternion, the same extraction the panel anchor uses.
+            // First FOCUSED frame = the headset is actually on a head: recenter automatically, so
+            // the STARTING view is correct on every runtime and every seating position without the
+            // player knowing a recenter exists (gamepad players have no trigger combo). Manual
+            // recenter (both triggers / the menu row) still re-zeros any time.
+            if (!sAutoRecentered && sState == XR_SESSION_STATE_FOCUSED) {
+                sAutoRecentered = true;
+                sRecenterRequest = true;
+                printf("[VR] first focus: auto-recenter.\n");
+            }
             if (sRecenterRequest) {
                 sRecenterRequest = false;
                 float ty = sViews[0].pose.orientation.y, tw = sViews[0].pose.orientation.w;
@@ -1576,13 +1592,14 @@ extern "C" void vr_begin_frame(void) {
                     sRcQy = -ty / tn; // conjugate: undo the captured yaw
                     sRcQw = tw / tn;
                     sRcPos[0] = 0.5f * (sViews[0].pose.position.x + sViews[1].pose.position.x);
-                    sRcPos[1] = 0.5f * (sViews[0].pose.position.z + sViews[1].pose.position.z);
+                    sRcPos[1] = 0.5f * (sViews[0].pose.position.y + sViews[1].pose.position.y);
+                    sRcPos[2] = 0.5f * (sViews[0].pose.position.z + sViews[1].pose.position.z);
                     sRecenterSet = true;
                     sPanelAnchorValid = false; // panel re-parks in front of the new forward
                     sHeadRestSet = false;      // 6DoF rest re-captures against the new origin
                     sHeadWarmup = 0;
                     vr_controller_rumble(0.5f, 0.1f); // the confirmation tick in the hands
-                    printf("[VR] in-game recenter: view yaw + position re-zeroed.\n");
+                    printf("[VR] in-game recenter: view yaw + position + height re-zeroed.\n");
                 }
             }
             // Apply the active correction to both view poses; everything downstream (eye matrices,
@@ -1592,9 +1609,12 @@ extern "C" void vr_begin_frame(void) {
                 const float s = 2.0f * sRcQy * sRcQw;
                 for (int i = 0; i < 2; i++) {
                     XrPosef* p = &sViews[i].pose;
-                    // position: translate to the captured origin (x/z only - keep real height), then yaw
+                    // position: translate to the captured origin (height included - the neutral head
+                    // becomes y=0, which is what the per-mode eye-height offsets are tuned against;
+                    // crouching and standing still track as deltas on top), then yaw about it.
                     float px = p->position.x - sRcPos[0];
-                    float pz = p->position.z - sRcPos[1];
+                    float pz = p->position.z - sRcPos[2];
+                    p->position.y -= sRcPos[1];
                     p->position.x = c * px + s * pz;
                     p->position.z = -s * px + c * pz;
                     // orientation: q' = qc * q, with qc = (0, sRcQy, 0, sRcQw)
