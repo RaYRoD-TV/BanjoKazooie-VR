@@ -622,24 +622,37 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         // follow only when genuinely submerged AWAY from the surface. Liveness-stamped like every
         // bs-state consumer (round 31). The follow stays CAPPED per tick - 2.5 degrees (~75
         // deg/s) tracks a real swim turn while staying under the vection threshold.
-        // FLYING steers exactly like swimming: the left stick banks Banjo and the world-stable base
-        // otherwise leaves you flying sideways, fighting the stick to see where you are going. Same
-        // follow, same cap, same only-while-you-are-commanding-it comfort rule - and the same toggle,
-        // because "the view follows me while I steer" is one idea, not two.
+        // FLYING wants the same idea but NOT the same numbers, and reusing swimming's was why the
+        // first attempt did nothing. Flight yaw runs bounded at up to 500 deg/s (bFly.c, R held),
+        // which is well past 15 degrees in a tick, so swimming's sanity window threw away the whole
+        // banking turn - the follow never engaged at all during the exact manoeuvre it exists for.
+        // Flight also steers on the stick's X axis alone (bastick_getX), so a hard bank is measured
+        // on X, not on the stick magnitude swimming gates against. And BS_23_FLY_ENTER is NOT in the
+        // flight family, so the follow was dead for the whole entry.
         const s32 bsNow = bs_getState();
         const bool swimFollow = player_inWater() && bsbswim_inSet(bsNow) && !func_802A73BC();
-        const bool flyFollow = bsbfly_inSet(bsNow);
+        const bool flyFollow = bsbfly_inSet(bsNow) || bsNow == BS_23_FLY_ENTER;
         if (sPrevYawValid && BsStateIsLive() && (swimFollow || flyFollow) &&
             CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
-            const float mag = sqrtf(move[0] * move[0] + move[1] * move[1]);
-            if (mag > 0.35f && dyaw > -15.0f && dyaw < 15.0f) {
-                if (dyaw > 2.5f) {
-                    dyaw = 2.5f;
+            // Swimming steers with the whole stick; flight banks on X. Measure what each one uses.
+            const float mag = flyFollow ? fabsf(move[0])
+                                        : sqrtf(move[0] * move[0] + move[1] * move[1]);
+            // Window = "is this a steer or a teleport": wide enough to admit a real banking turn,
+            // still tight enough that a warp or a respawn cannot drag the view with it.
+            const float window = flyFollow ? 45.0f : 15.0f;
+            // Cap = how fast the view is allowed to follow. Swimming's 2.5 (~75 deg/s) is a gentle
+            // drift; flight turns several times faster, and a view that lags that far behind reads
+            // as the world sliding sideways. 8 deg/tick is ~240 deg/s: it keeps up with a bank
+            // without ever outrunning the body, which is what the comfort rule actually asks.
+            const float cap = flyFollow ? 8.0f : 2.5f;
+            if (mag > 0.35f && dyaw > -window && dyaw < window) {
+                if (dyaw > cap) {
+                    dyaw = cap;
                 }
-                if (dyaw < -2.5f) {
-                    dyaw = -2.5f;
+                if (dyaw < -cap) {
+                    dyaw = -cap;
                 }
                 sYaw += dyaw;
             }
