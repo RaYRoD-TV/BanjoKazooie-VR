@@ -716,7 +716,8 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
 //   left stick        analog stick (move / menu navigation)
 //   right trigger     B - ATTACK (the trigger is the attack, shooter-style)
 //   left trigger      Z - crouch / Talon Trot / egg aim (the trigger IS the crouch)
-//   right grip        A - jump (squeeze to hop; A on the face button does the same)
+//   right grip        Z - CROUCH (squeeze to duck). Third Z source with the left trigger and X,
+//                     and the only one that survives pause. Jump is the A face button.
 //   left grip         R - camera modifier / centre
 //   A / B buttons     A / B directly (so either hand works in menus)
 //   X                 Z (crouch from a face button too)
@@ -859,7 +860,13 @@ static void MergePadSources(OSContPad* pad) {
         if (vb & VR_BTN_LTRIGGER) { btn |= Z_TRIG; }
     }
     if (vb & VR_BTN_A)        { btn |= A_BUTTON; }
-    if (vb & VR_BTN_RGRIP)    { btn |= A_BUTTON; }
+    // Right grip CROUCHES. Squeezing the hand you already hold the world with to duck reads as the
+    // body doing it, which is the whole point of first person here. It is the third Z source
+    // alongside the left trigger and X, and the only one that also works while paused. The cost,
+    // stated plainly: jump was doubled on this grip and is now the A face button alone on the
+    // controllers that have one. Vive wands and WMR have no A face button, so a player on those
+    // profiles jumps with the gamepad or rebinds - flagged rather than silently traded away.
+    if (vb & VR_BTN_RGRIP)    { btn |= Z_TRIG; }
     if (vb & VR_BTN_B)        { btn |= B_BUTTON; }
     if (vb & VR_BTN_X)        { btn |= Z_TRIG; }
     if (vb & VR_BTN_LGRIP)    { btn |= R_TRIG; }

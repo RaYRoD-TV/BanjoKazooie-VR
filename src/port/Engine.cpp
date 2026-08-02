@@ -729,6 +729,11 @@ void GameEngine::FinishInit() {
 #endif
 
     RegisterResourceFactories(context->GetResourceManager()->GetResourceLoader());
+    // ALT-ASSETS DEFAULT, SITE 1 OF 3. The other two are the Tab hotkey and the per-frame sync
+    // below; all three MUST pass the same default. They did not: this one said 1 while the other
+    // two said 0, so on any config without the key the first frame compared "1" against "0",
+    // decided the user had just turned alternate assets off, and disabled them - texture packs and
+    // romhack overlays loaded fine and then rendered as stock. Keep these three in step.
     prevAltAssets = CVarGetInteger(CVAR_SETTING("Mods.AlternateAssets"), 1);
     context->GetResourceManager()->SetAltAssetsEnabled(prevAltAssets);
 
@@ -1434,8 +1439,11 @@ void GameEngine::StartFrame() const {
     switch (dwScancode) {
         case KbScancode::LUS_KB_TAB: {
             // Toggle HD Assets
+            // ALT-ASSETS DEFAULT, SITE 2 OF 3 (see the init read). Default 1 here too, or the
+            // first Tab press on a fresh config writes the value it already effectively had and
+            // the toggle silently eats that press.
             CVarSetInteger(CVAR_SETTING("Mods.AlternateAssets"),
-                           !CVarGetInteger(CVAR_SETTING("Mods.AlternateAssets"), 0));
+                           !CVarGetInteger(CVAR_SETTING("Mods.AlternateAssets"), 1));
             break;
         }
         case KbScancode::LUS_KB_F4: {
@@ -1870,7 +1878,9 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
         interpreter->mInterpolationIndex++;
     }
 
-    bool curAltAssets = CVarGetInteger(CVAR_SETTING("Mods.AlternateAssets"), 0);
+    // ALT-ASSETS DEFAULT, SITE 3 OF 3 (see the init read). This is the per-frame comparison that
+    // was disabling alternate assets on frame one whenever the key was absent.
+    bool curAltAssets = CVarGetInteger(CVAR_SETTING("Mods.AlternateAssets"), 1);
     if (prevAltAssets != curAltAssets) {
         prevAltAssets = curAltAssets;
         Ship::Context::GetRawInstance()->GetResourceManager()->SetAltAssetsEnabled(curAltAssets);
