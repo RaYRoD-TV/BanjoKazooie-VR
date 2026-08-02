@@ -14,6 +14,7 @@ extern s32 osCicId;
 
 /* .data */
 Vec3fArray *D_80363780 = NULL;
+f32 baModel_refPointFallbackRaise(void); // defined below, used by the ref-point fallback
 
 /* .bss */
 void *baModelBin; //baModelPtr
@@ -56,6 +57,16 @@ void baModel_80291A50(s32 arg0, f32 dst[3]){
     vec3fArray_get_vec3f(D_80363780, arg0, dst);
     if(ml_isZero_vec3f(dst)){
         playerPosition_get(dst);
+        // [port] The ref points are PRODUCED BY the model draw (modelRender_setRefPoints during
+        // modelRender_draw), so VR first person - which skips that draw - has none, and every
+        // caller lands on this fallback. playerPosition is Banjo's FEET, and a body part is not at
+        // his soles: notes tucked at head height, like the ones inside the chest enemy in Treasure
+        // Trove Cove, fell outside pickup range in first person and collected the instant you
+        // switched to third. Lift the fallback to the body centre, which is what a ref point
+        // approximates anyway. Half of the eye height the game itself uses for Banjo
+        // (func_8028E9C4 mode 5 adds 100), so this stays in the game's own units and needs no
+        // second constant. Zero outside the hidden case, so third person is untouched.
+        dst[1] += baModel_refPointFallbackRaise();
     }
 }
 
@@ -341,6 +352,14 @@ void baModel_80292284(f32 arg0[3], s32 arg1){
 // and the skipped draw is also what refreshes these points - left alone they stay frozen at the
 // spot where first person engaged, and everything that reads a body position (enemy proximity,
 // attack hitboxes, NPC talk triggers, pickups) keeps testing against that ghost.
+// [port] How far above the foot position the ref-point fallback sits. Nonzero only while the bear
+// is hidden (VR first person), which is the only time the points are cleared and the fallback runs
+// at all, so the flat game and third person are untouched by construction.
+extern int port_vrFirstPerson_hidePlayer(void);
+f32 baModel_refPointFallbackRaise(void){
+    return port_vrFirstPerson_hidePlayer() ? 50.0f : 0.0f;
+}
+
 void baModel_clearRefPoints(void){
     if(D_80363780){
         vec3fArray_clearValues(D_80363780);
