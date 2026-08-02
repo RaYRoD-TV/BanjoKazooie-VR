@@ -149,7 +149,7 @@ static const VrRow kRowsViewDiorama[] = {
 };
 
 static const VrRow kRowsFp[] = {
-    { "IMMERSIVE CAM", ROW_INT01, "gVRFpImmersive",          1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "YOUR HEAD IS BANJOS HEAD. LEAN AND WALK WHERE YOU LOOK." },
+    { "IMMERSIVE CAM", ROW_INT01, "gVRFpImmersive",          1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "YOUR HEAD IS BANJOS HEAD. LEAN, WALK AND DUCK AS HE DOES." },
     { "HEAD MOVE",     ROW_INT01, "gVRFpHeadMove",           1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "STICK FORWARD WALKS WHERE YOU ARE LOOKING." },
     { "LEAN",          ROW_FLOAT, "gVRHeadScale",            0.05f, 0.0f, 1.5f, 0.1f, NULL, NULL, -1, "HOW MUCH YOUR REAL BODY MOVEMENT MOVES THE CAMERA." },
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },

@@ -14,6 +14,12 @@
 #include "port/UI/cvar_prefixes.h"          // CVAR_SETTING - the control-scheme check in the pad merge
 #include "port/Controller/ControlSchemes.h" // CONTROL_SCHEME_MODERN
 
+// Decomp headers, each with its own extern "C" guard, so the types below keep C linkage. model.h
+// brings the model bin and its BONE TABLE, which the animated head offset walks; bonetransform.h
+// brings the pose buffer it samples into.
+#include "model.h"
+#include "core2/bonetransform.h"
+
 extern "C" {
 #include "enums.h"      // game_mode_e, GameMap
 #include <libultraship/libultra/controller.h>
@@ -30,10 +36,37 @@ bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine'
 s32  func_80294524(void); // nonzero while the game HOLDS you at the surface - the state where A jumps out
 int bsbfly_inSet(int state); // nonzero in the FLIGHT state family - flying steers like swimming does
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
-// The player's animation clock, for the flip cam. AnimCtrl is opaque here - only the normalized
-// 0..1 position matters, and C linkage cares about the name, not the pointer's type.
+// The player's animation clock, for the flip cam and the animated head. AnimCtrl is opaque here -
+// only the normalized 0..1 position and the asset id matter, and C linkage cares about the name,
+// not the pointer's type.
 void* baanim_getAnimCtrlPtr(void);
 f32   anctrl_getAnimTimer(void* animCtrl);
+enum asset_e anctrl_getIndex(void* animCtrl);
+
+// Reading Banjo's POSE without drawing him. animationFile_getBoneTransformList is pure with respect
+// to rendering - it reads the animation asset and writes a bone list, and touches no render state -
+// which is what makes an animated first-person eye possible at all while the bear's draw is skipped.
+struct animation_file_s;
+typedef struct animation_file_s AnimationFile;
+AnimationFile* animBinCache_get(enum asset_e asset_id); // NULL for sentinel ids and anything unloaded
+void animationFile_getBoneTransformList(AnimationFile* anim_file, f32 progress, BoneTransformList* out);
+void boneTransformList_reset(BoneTransformList* self);
+// The 3-in-1 bone read animMtxList_setBoned itself uses: rotation quaternion, scale, translation.
+void func_8033A5B8(BoneTransformList* self, s32 bone_id, f32 quat[4], f32 scale[3], f32 translation[3]);
+void func_80345274(f32 quat[4], f32 out[3][3]); // quaternion -> 3x3, the same conversion the draw does
+bool vec4f_isZero(f32 quat[4]);                 // true for the IDENTITY quaternion, despite the name
+BKModelBin* baModel_getModelBin(void);
+// The three angles and the scale the model is DRAWN with. All four have to come from the live
+// accessors, not from the baModelYaw / baModelPitch / baModelRoll / baModelScale globals: those are
+// written inside baModel_draw, and first person skips that draw, so they hold whatever the bear was
+// doing the last time he was visible.
+f32 baModel_computeModelYaw(void);
+f32 baModel_getScale(void);
+f32 pitch_get(void);
+f32 roll_get(void);
+// Which creature the player currently IS. Every transformation is a different skeleton, so this is
+// what says whether Banjo's bones mean anything this tick.
+enum transformation_e bsStoredState_getTransformation(void);
 
 // Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
 // MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
@@ -70,6 +103,11 @@ void* func_80320B98(f32 from[3], f32 to[3], f32 hitOut[3], u32 mask);
 // The game's own rotate-by-pitch-then-yaw helper - the same one the frustum planes and the free
 // look orbit are built with, so directions derived here can never disagree with the game's.
 void func_80256E24(f32 dst[3], f32 pitch, f32 yaw, f32 x, f32 y, f32 z);
+// The FULL three-angle version: dst = base + src rotated by roll, then pitch, then yaw. That order
+// is not a detail - it is exactly the order func_80252AF0 pushes roll, pitch and yaw onto the
+// matrix stack for a model, so a point rotated with this lands where the drawn model puts it.
+// rotation is the same {pitch, yaw, roll} triple modelRender_draw is handed.
+void func_80256F44(f32 base[3], f32 rotation[3], f32 src[3], f32 dst[3]);
 }
 
 #include <math.h>
@@ -486,6 +524,164 @@ extern "C" void port_vrFpFaceViewYaw(void) {
     yaw_setIdeal(bodyYaw);
 }
 
+// ---- the animated head ------------------------------------------------------
+//
+// IMMERSIVE CAM ANIMATING. Without this the eye is func_8028E9C4 mode 5 - the player's foot
+// position plus a FIXED per-transform head height - and no animation can move a constant, so
+// crouching, lunging, being slammed into the ground and the whole walk cycle all leave the view
+// hanging at one height like a camera on a pole.
+//
+// Why it cannot simply read the drawn skeleton: the bone matrices and the model's ref points are
+// PRODUCED by baModel_draw, and first person skips that draw to hide the bear. What survives the
+// skipped draw is the animation CLOCK - baAnim_update ticks the player's AnimCtrl from the player
+// update, not from the render - and the pose is a pure function of that clock. So the pose is
+// sampled here and the head chain walked by hand, with the same arithmetic animMtxList_setBoned
+// performs on the matrix stack (anim_defrag.c).
+//
+// THE ANCHOR TRICK, which is what makes it safe to leave on: the point carried down the chain is
+// NOT the head pivot - a pivot does not move when the head rotates about it - but the point the
+// game already calls the eye, model space (0, eyeHeight, 0). eyeHeight is handed in by the caller
+// as the height mode 5 just added, so the per-transform table is read once, by the game, and never
+// copied here. In a bind pose every local transform is the identity, the point comes back
+// unchanged, and the offset is EXACTLY zero - see the increment form in the walk, written so that
+// an identity hop cancels bit for bit rather than merely nearly.
+
+// Banjo's head. Verified twice over: the Big Head / Small Head cheat scales exactly this bone
+// (ba_anim.c), and the model's own bone table puts it at (0, 91.0, 1.84) with the beak bone just
+// above it at height 100 - the same 100 the fixed eye constant adds.
+static const s32 kHeadBoneId = 0x12;
+
+// The pose buffer. Static rather than boneTransformList_new: this is read from the camera path
+// every tick, and a block on the game heap can be moved by a defrag, which turns a cached pointer
+// into a landmine. Same 0x6D bone capacity boneTransformList_new hands out, so the bounds this
+// enforces are the game's own.
+static BoneTransform sHeadPoseBones[0x6D];
+static BoneTransformList sHeadPose = { sHeadPoseBones,
+                                       (s32)(sizeof(sHeadPoseBones) / sizeof(sHeadPoseBones[0])) };
+
+// Where the eye ends up once the head chain is applied, in BODY-LOCAL space, relative to where it
+// sits in the bind pose. False means there is nothing to read - the player is not ordinary Banjo,
+// or there is no animation, an asset that is a sentinel or simply not resident, a model with no
+// skeleton, or a skeleton with no head bone - and the caller then adds nothing at all.
+static bool VrFp_HeadBoneOffsetLocal(f32 eyeHeight, f32 outLocal[3]) {
+    // ORDINARY BANJO ONLY, and this gate is the feature's safety catch. Every transformation is a
+    // different creature on a skeleton of its own, and 0x12 is a low bone id that the termite, the
+    // pumpkin, the walrus, the croc and the bee very likely all carry as something that is not a
+    // head - so merely finding a bone 0x12 proves nothing. Driving the eye off another rig's bone
+    // would put the view somewhere meaningless. For those forms the fixed per-transform head height
+    // is already the right answer, which is exactly what func_8028E9C4 mode 5 hands the caller.
+    if (bsStoredState_getTransformation() != TRANSFORM_1_BANJO) {
+        return false;
+    }
+    void* animCtrl = baanim_getAnimCtrlPtr();
+    if (animCtrl == NULL) {
+        return false;
+    }
+    AnimationFile* animFile = animBinCache_get(anctrl_getIndex(animCtrl));
+    if (animFile == NULL) {
+        return false;
+    }
+    BKModelBin* bin = baModel_getModelBin();
+    if (bin == NULL) {
+        return false;
+    }
+    BKAnimationList* skel = modelbin_getAnimationList(bin);
+    if (skel == NULL || skel->count <= 0) {
+        return false;
+    }
+    // The draw scales the WHOLE model by this (func_80252AF0 multiplies every model-space point by
+    // it before the rotations), so the bone chain below and the world-space eye height handed in
+    // are not in the same units until it is applied - once on the way in, once on the way back out.
+    // It is 1.0 for ordinary Banjo today, and the transform gate above keeps the pumpkin's 0.3 out
+    // of here entirely, but a head offset that quietly disagreed with the drawn body would be a
+    // nasty thing to leave lying around. A model scaled to nothing has no head worth reading.
+    const f32 modelScale = baModel_getScale();
+    if (modelScale <= 0.0f) {
+        return false;
+    }
+
+    // Find the head's ENTRY in this skeleton. The table is ordered by entry, not by bone id, and
+    // Banjo has more than one model bin (the bear alone, and the bear carrying the bird), so there
+    // is no promise the head sits at the same entry in the one currently loaded.
+    s32 head = -1;
+    for (s32 i = 0; i < skel->count; i++) {
+        if (skel->animations[i].bone_id == kHeadBoneId) {
+            head = i;
+            break;
+        }
+    }
+    if (head < 0) {
+        return false;
+    }
+
+    // Sample the pose. RESET first: getBoneTransformList only writes the bones the asset actually
+    // animates, so everything it leaves alone has to already hold the identity a bind pose means.
+    // The (index, timer) pair is exactly the pair anim_update feeds it (anim_buffer.c), and the
+    // timer is already absolute across the whole asset - anctrl_update folds the sub-range in, so
+    // applying the sub-range a second time here would sample the wrong frame. Mid-blend the game
+    // interpolates this pose against the outgoing one and only the incoming half is read here; a
+    // few ticks of a slightly early pose disappears under the easing at the call site.
+    boneTransformList_reset(&sHeadPose);
+    animationFile_getBoneTransformList(animFile, anctrl_getAnimTimer(animCtrl), &sHeadPose);
+
+    // The anchor, in MODEL space - hence the divide, which undoes the scale the draw would apply.
+    const f32 start[3] = { 0.0f, eyeHeight / modelScale, 0.0f };
+    f32 p[3] = { start[0], start[1], start[2] };
+
+    // Child to root, the same arithmetic animMtxList_setBoned performs one bone at a time:
+    // p' = ((p - t) * S) * R + t + u*d. Written as an INCREMENT on p so an identity hop cancels
+    // exactly: v - v is zero in floating point, while (p - t) + t is only nearly p.
+    s32 at = head;
+    for (s32 hop = 0; at >= 0 && at < skel->count && hop < skel->count; hop++) {
+        const BKAnimation* bone = &skel->animations[at];
+        // The pose list is indexed by BONE id, and it is a fixed 0x6D like the game's own. A
+        // skeleton carrying a higher id would read past the end of the buffer, so it stands down
+        // instead - the eye keeps the fixed height, which is exactly the old behaviour.
+        if (bone->bone_id < 0 || bone->bone_id >= sHeadPose.count) {
+            return false;
+        }
+        f32 quat[4], scale[3], delta[3];
+        func_8033A5B8(&sHeadPose, bone->bone_id, quat, scale, delta);
+
+        const f32 v[3] = { p[0] - bone->translation[0], p[1] - bone->translation[1],
+                           p[2] - bone->translation[2] };
+        f32 w[3] = { v[0] * scale[0], v[1] * scale[1], v[2] * scale[2] };
+        if (!vec4f_isZero(quat)) { // "isZero" reads IDENTITY here - the same test the draw makes
+            f32 R[3][3];
+            func_80345274(quat, R);
+            const f32 s0 = w[0], s1 = w[1], s2 = w[2];
+            w[0] = s0 * R[0][0] + s1 * R[1][0] + s2 * R[2][0];
+            w[1] = s0 * R[0][1] + s1 * R[1][1] + s2 * R[2][1];
+            w[2] = s0 * R[0][2] + s1 * R[1][2] + s2 * R[2][2];
+        }
+        // Translation channels are scaled by the skeleton's own factor (10.0 on both Banjo models)
+        // before they mean anything, exactly as the draw scales them.
+        p[0] += (w[0] - v[0]) + skel->unk0 * delta[0];
+        p[1] += (w[1] - v[1]) + skel->unk0 * delta[1];
+        p[2] += (w[2] - v[2]) + skel->unk0 * delta[2];
+
+        at = bone->mtx_id; // the parent's entry in the same table; -1 is the root and ends the walk
+    }
+
+    // Back out of model space, so the caller gets a distance in the same units the world is in and
+    // the clamp downstream measures a real one.
+    outLocal[0] = (p[0] - start[0]) * modelScale;
+    outLocal[1] = (p[1] - start[1]) * modelScale;
+    outLocal[2] = (p[2] - start[2]) * modelScale;
+    return true;
+}
+
+// The APPLIED head offset, held in BODY-LOCAL space and eased there.
+//
+// Local, not world, and this is the whole design. bs_setState calls port_vrFpFaceViewYaw as an aim
+// state begins (barge, claw, peck, both eggs), which snaps the body yaw to face the view - up to
+// 180 degrees in ONE tick. An offset eased in WORLD space cannot tell that turn from a pose change:
+// the old world vector is still pointing where the body used to face, so it takes several ticks to
+// swing round and the eye slides roughly a third of a metre sideways while it does. Held in the
+// body's own frame the turn costs nothing at all - the offset rides round rigidly with him, which
+// is what a head bolted to a body actually does - and the filter only ever sees genuine pose change.
+static f32 sHeadOffLocal[3] = { 0.0f, 0.0f, 0.0f };
+
 extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     if (!VrFp_Active()) {
         // Tolerate short inactive stretches so a loading zone or dialogue can't recenter the view.
@@ -502,6 +698,79 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     position[0] = eye[0];
     position[1] = eye[1];
     position[2] = eye[2];
+
+    // IMMERSIVE CAM ANIMATING: move the eye to where his HEAD actually is this tick, so a crouch
+    // ducks the view, an attack lunges and dips it, and the stride carries a real bob - all of it
+    // out of the animation the body is already playing, none of it invented here.
+    {
+        f32 target[3] = { 0.0f, 0.0f, 0.0f };
+        // Liveness before any game global is believed (the round-31 law): the animation controller
+        // and the model bin are reset-only globals like every other, so a screen with no player
+        // behind it must not be able to pose an eye.
+        if (CVarGetInteger("gVRFpImmersive", 1) != 0 && BsStateIsLive()) {
+            f32 foot[3];
+            playerPosition_get(foot);
+            // eye[1] - foot[1] IS the game's per-transform head height, since mode 5 is exactly
+            // "foot position plus that height". Passing it through means the transformation table
+            // has one home and this file never holds a second copy of it. The helper stands down
+            // for every transformation other than ordinary Banjo and returns false, which leaves
+            // that fixed height alone - the right answer for a termite or a pumpkin.
+            if (!VrFp_HeadBoneOffsetLocal(eye[1] - foot[1], target)) {
+                target[0] = target[1] = target[2] = 0.0f;
+            }
+            // CLAMP THE MAGNITUDE, direction kept. A full crouch measures about 57 units (47 down,
+            // 32 forward) and has to survive whole - it IS the feature. The beak buster swings the
+            // head 88 units, most of a metre at life size, and applied raw that is a plunge the
+            // player never made with their own neck. Scaling the whole vector rather than trimming
+            // an axis keeps a clamped move dipping and lunging the way the body does, just less far.
+            const f32 kMaxOffset = 60.0f;
+            const float len =
+                sqrtf(target[0] * target[0] + target[1] * target[1] + target[2] * target[2]);
+            if (len > kMaxOffset) {
+                const float k = kMaxOffset / len;
+                target[0] *= k;
+                target[1] *= k;
+                target[2] *= k;
+            }
+        }
+        // Eased ONCE PER GAME TICK, which is enough here and is not the flip cam's situation. The
+        // flip cam rotates the eye's own view matrix, built fresh in vr.cpp every headset frame
+        // out of the live pose - nothing on the game side can ever smooth that, so it has to ease
+        // where the frames are. This offset instead moves the GAME's camera position, and the
+        // camera position is subtracted into every object's modelview (func_80252AF0), which
+        // mlMtxApply records for frame interpolation - the same machinery that already carries
+        // ordinary walking smoothly from a 30 Hz tick to a 144 Hz headset. Easing it a second time
+        // per frame would only add lag to a value that is already interpolated.
+        //
+        // No reset when the override stops driving (a scripted shot, a loading zone, pause). The
+        // target is recomputed from the CURRENT pose every tick, so a resumed eye is only ever
+        // wrong if the pose changed while the game held the camera - and that resumption is a hard
+        // cut anyway. Pause is the case that would have been hurt by a reset: the pose cannot
+        // change there, the held value is still exactly right, and starting again from zero would
+        // have lifted the view out of a crouch on every unpause.
+        const float kEase = 0.30f;
+        for (int i = 0; i < 3; i++) {
+            sHeadOffLocal[i] += (target[i] - sHeadOffLocal[i]) * kEase;
+        }
+        // Only NOW does it become a world offset, through ALL THREE of the angles the model itself
+        // is drawn with and in the draw's own order. func_80252AF0 pushes roll, then pitch, then
+        // yaw, and func_80256F44 is the vector form of exactly that sequence, so the eye can never
+        // disagree with where the bear is drawn.
+        //
+        // Pitch and roll are not decoration. Diving swings them across most of a circle (bSwim.c
+        // drives roll and pitch through 275..360 and 0..85) and flight does the same, and a
+        // 60-unit offset turned by yaw alone would sit the better part of a metre from the real
+        // head at full pitch. All three come from the live accessors, never from baModelPitch /
+        // baModelRoll: those are written inside the draw that first person skips, so they hold the
+        // angles the bear had the last time he was visible.
+        f32 modelRot[3] = { pitch_get(), baModel_computeModelYaw(), roll_get() };
+        f32 base[3] = { 0.0f, 0.0f, 0.0f };
+        f32 world[3];
+        func_80256F44(base, modelRot, sHeadOffLocal, world);
+        position[0] += world[0];
+        position[1] += world[1];
+        position[2] += world[2];
+    }
 
     // First person LIFE (gVRFpViewBob, the sm64 port's feel): a small stride bob while walking and
     // a damped dip on landing, driven by the body's REAL motion so it reads as self-motion rather
@@ -554,9 +823,10 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         sPrevPosValid = true;
     }
 
-    // FLOOR CLAMP, after every Y modifier: the eye is playerPosition + a FIXED head height
-    // (func_8028E9C4 mode 5 - no animation in it), and the game legitimately drives the player
-    // POSITION under the floor in some states: the beak buster slam buries the body on impact by
+    // FLOOR CLAMP, after every Y modifier INCLUDING the animated head above - which is the order
+    // that matters: a crouch has to be allowed to lower the eye, and then the lowered eye still has
+    // to sit above the ground. The game legitimately drives the player POSITION under the floor in
+    // some states, whatever the head is doing: the beak buster slam buries the body on impact by
     // design, and pressing Z on a bumpy uphill walk is exactly how a buster fires by accident
     // ("crouching up a hill put my cam through the floor" - position dips, terrain rises, and
     // position+100 lands inside the hill). The eye never sinks below the game's own tracked

@@ -101,8 +101,9 @@ void LighthouseMenu::AddMenuVR() {
         .RaceDisable(false)
         .Options(CheckboxOptions().DefaultValue(true).Tooltip(
             "The full first-person feel in one switch: your head IS Banjo's head. Lean to peek "
-            "around corners, crouch to duck, and walk where you look. Off falls back to plain "
-            "base-relative movement with no physical lean."));
+            "around corners, walk where you look, and let his own animation carry the view - "
+            "crouching lowers it, attacks lunge and dip it, walking gives it a real stride. Off "
+            "falls back to plain base-relative movement with no physical lean and a fixed eye."));
 
     AddWidget(path, "Lean Amount", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRHeadScale")

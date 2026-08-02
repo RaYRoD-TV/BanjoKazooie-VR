@@ -40,17 +40,26 @@ struct {
 void baModel_set(enum asset_e asset_id);
 
 //.data
-static void _baModel_updateModelYaw(void){
+// [port] The yaw the model would be drawn at RIGHT NOW, as a plain question anyone can ask. It used
+// to exist only as the first line of baModel_draw, so baModelYaw was refreshed by the DRAW - and VR
+// first person skips the draw to hide the bear, which left every reader of that global looking at
+// whatever facing the bear had the last time it was drawn. Splitting the answer out changes nothing
+// for the draw (it still stores the same value in the same place) and makes the live value
+// available off the render path. PLAYER_MODEL_DIR_GLOBAL returns the stored yaw untouched: that
+// case is owned by baModel_setYaw and the draw never overwrote it either.
+f32 baModel_computeModelYaw(void){
     switch(baModelDirection){
         case PLAYER_MODEL_DIR_KAZOOIE:
-            baModelYaw = mlNormalizeAngle(yaw_get() + 180.0f);
-            break;
-        default:
-            baModelYaw = yaw_get();
-            break;
+            return mlNormalizeAngle(yaw_get() + 180.0f);
         case PLAYER_MODEL_DIR_GLOBAL:
-            break;
+            return baModelYaw;
+        default:
+            return yaw_get();
     }
+}
+
+static void _baModel_updateModelYaw(void){
+    baModelYaw = baModel_computeModelYaw();
 }
 
 void baModel_80291A50(s32 arg0, f32 dst[3]){
@@ -247,6 +256,16 @@ void baModel_setScale(f32 scale){
         scale = scale*0.25;
     }
     baModelScale = scale;
+}
+
+// [port] The scale the model is actually DRAWN at, as a plain question anyone can ask. baModel_draw
+// hands baModelScale straight to modelRender_draw and func_80252AF0 multiplies every model-space
+// point by it, so anything working out where a point on the body ends up in the world has to use
+// the same number or it lands somewhere the bear is not - the pumpkin drives it to 0.3, which is
+// over three times out. Read-only, and it reports the value AFTER baModel_setScale has applied its
+// CIC adjustment, which is the value the draw uses. Nothing about the setter changes.
+f32 baModel_getScale(void){
+    return baModelScale;
 }
 
 void baModel_setYaw(f32 angleDegrees){
