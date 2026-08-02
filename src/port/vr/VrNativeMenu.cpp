@@ -52,22 +52,25 @@ static void RowRecenter(void) {
     vr_controller_rumble(0.5f, 0.06f);
 }
 static void RowDefaults(void) {
+    // Restores every NUMBER on every page - and deliberately NOT the view mode: a reset should
+    // fix values, not teleport the player into a different way of seeing the world.
     vr_reset_defaults();
-    CVarSetInteger("gVRViewMode", 1); // First Person is the shipped default
     CVarSetFloat("gVRWorldScale", 100.0f);
     CVarSetFloat("gVRStereo", 1.0f);
-    CVarSetFloat("gVREyeHeight", -0.29f);
+    CVarSetFloat("gVREyeHeight", -1.09f);
     CVarSetFloat("gVRHudScale", 0.35f);
     CVarSetFloat("gVRHudDist", 2.9f);
     CVarSetFloat("gVRMenuDist", 3.4f);
     CVarSetFloat("gVRMenuSize", 3.6f);
-    CVarSetFloat("gVRThirdPersonDist", 0.8f);
+    CVarSetFloat("gVRThirdPersonDist", 0.7f);
     CVarSetFloat("gVRFirstPersonScale", 100.0f);
     CVarSetFloat("gVRFirstPersonFwd", 0.0f);
     CVarSetFloat("gVRFirstPersonEyeHeight", 0.0f);
-    CVarSetFloat("gVRDioramaWorldScale", 6200.0f);
-    CVarSetFloat("gVRDioramaDist", 0.0f);
-    CVarSetFloat("gVRDioramaHeight", -0.06f);
+    CVarSetFloat("gVRDioramaWorldScale", 8000.0f);
+    CVarSetFloat("gVRDioramaDist", 0.6f);
+    CVarSetFloat("gVRDioramaHeight", -0.4f);
+    CVarSetFloat("gVRMenuOpacity", 0.85f);
+    CVarSetInteger("gVRFpViewBob", 1);
     CVarSetInteger("gVRFpVerticalLook", 0);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
@@ -111,8 +114,8 @@ static const VrRow kRowsView[] = {
     { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
     { "WORLD SCALE", ROW_FLOAT, "gVRWorldScale",      5.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "GAME UNITS PER METRE. LOWER MAKES THE WORLD BIGGER." },
     { "STEREO",      ROW_FLOAT, "gVRStereo",          0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
-    { "EYE HEIGHT",  ROW_FLOAT, "gVREyeHeight",       0.05f, -1.5f, 1.5f, -0.29f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN THIRD PERSON." },
-    { "CAM DIST",    ROW_FLOAT, "gVRThirdPersonDist", 0.05f, 0.3f, 3.0f, 0.8f, NULL, NULL, -1, "HOW FAR THE CAMERA SITS FROM BANJO. 1 IS STOCK." },
+    { "EYE HEIGHT",  ROW_FLOAT, "gVREyeHeight",       0.05f, -1.5f, 1.5f, -1.09f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN THIRD PERSON." },
+    { "CAM DIST",    ROW_FLOAT, "gVRThirdPersonDist", 0.05f, 0.3f, 3.0f, 0.7f, NULL, NULL, -1, "HOW FAR THE CAMERA SITS FROM BANJO. 1 IS STOCK." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",        0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",         0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
     { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
@@ -132,10 +135,10 @@ static const VrRow kRowsViewFp[] = {
 
 static const VrRow kRowsViewDiorama[] = {
     { "VIEW MODE",      ROW_ENUM,  "gVRViewMode",          1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
-    { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 6200.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
+    { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 8000.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
     { "STEREO",         ROW_FLOAT, "gVRStereo",            0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
-    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.0f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
-    { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.06f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
+    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.6f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
+    { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.4f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
     { "HUD SIZE",       ROW_FLOAT, "gVRHudScale",          0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",       ROW_FLOAT, "gVRHudDist",           0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
     { "VR DEFAULTS",    ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
@@ -154,9 +157,9 @@ static const VrRow kRowsFp[] = {
 };
 
 static const VrRow kRowsWorld[] = {
-    { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 6200.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
-    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.0f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
-    { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.06f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
+    { "DIORAMA SCALE",  ROW_FLOAT, "gVRDioramaWorldScale", 100.0f, 200.0f, 12000.0f, 8000.0f, NULL, NULL, -1, "HOW SMALL THE TABLETOP LEVEL IS. HIGHER IS SMALLER." },
+    { "DIORAMA DIST",   ROW_FLOAT, "gVRDioramaDist",       0.05f, -1.5f, 2.0f, 0.6f, NULL, NULL, -1, "METRES THE TABLETOP SITS IN FRONT OF YOU." },
+    { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.4f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
     { "SCREEN DIST",    ROW_FLOAT, "gVRMenuDist",          0.2f, 0.5f, 12.0f, 3.4f, NULL, NULL, -1, "METRES THE FLAT SCREEN AND MENUS SIT AWAY." },
     { "SCREEN SIZE",    ROW_FLOAT, "gVRMenuSize",          0.2f, 1.0f, 16.0f, 3.6f, NULL, NULL, -1, "WIDTH OF THE FLAT SCREEN AND MENUS." },
     { "HIDE HUD",       ROW_INT01, "gVRHideHud",           1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "HIDES THE GAME HUD WHILE PLAYING. MENUS STAY." },
@@ -179,6 +182,8 @@ static const VrRow kRowsSystem[] = {
     { "FREE LOOK CAM", ROW_INT01,  "gEnhancements.Camera.FreeLook.Enabled", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "RIGHT STICK AIMS THE CAMERA. NO AUTO RECENTRE." },
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },
+    { "MENU OPACITY",  ROW_FLOAT,  "gVRMenuOpacity",    0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
+    { "VIEW BOB",      ROW_INT01,  "gVRFpViewBob",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
     { "RECENTER",      ROW_ACTION, NULL, 0, 0, 0, 0, RowRecenter, NULL, -1, "BRINGS THE WORLD SQUARE TO WHERE YOU ARE LOOKING." },
     { "VR DEFAULTS",   ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
     { "RESUME",        ROW_ACTION, NULL, 0, 0, 0, 0, RowResume, NULL, -1, "CLOSES THIS MENU AND RETURNS TO THE PAUSE SCREEN." },
@@ -251,6 +256,23 @@ extern "C" int port_vrNativeMenu_isOpen(void) {
 static void AdjustRow(const VrRow* row, int dir) {
     switch (row->kind) {
         case ROW_ENUM: {
+            if (row->names == kViewModeNames) {
+                // FIRST -> THIRD -> DIORAMA -> THEATER, the order players expect, instead of the
+                // enum's raw numbering (the values are pinned by the shared eye-matrix code).
+                static const int kOrder[4] = { VR_VIEW_FIRST_PERSON, VR_VIEW_THIRD_PERSON, VR_VIEW_DIORAMA,
+                                               VR_VIEW_THEATER };
+                const int cur = CVarGetInteger(row->cvar, (int)row->def);
+                int idx = 0;
+                for (int k = 0; k < 4; k++) {
+                    if (kOrder[k] == cur) {
+                        idx = k;
+                    }
+                }
+                idx = (idx + (dir > 0 ? 1 : 3)) % 4;
+                CVarSetInteger(row->cvar, kOrder[idx]);
+                vr_set_view_mode(kOrder[idx]);
+                break;
+            }
             const int lo = (int)row->mn, hi = (int)row->mx;
             const int span = hi - lo + 1;
             int m = CVarGetInteger(row->cvar, (int)row->def);
@@ -258,9 +280,6 @@ static void AdjustRow(const VrRow* row, int dir) {
                 m = lo + ((m - lo + dir + span) % span);
             } while (m == row->skipValue);
             CVarSetInteger(row->cvar, m);
-            if (row->names == kViewModeNames) {
-                vr_set_view_mode(m);
-            }
             break;
         }
         case ROW_INT01:

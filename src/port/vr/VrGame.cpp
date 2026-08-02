@@ -25,6 +25,9 @@ s32 gsworld_getEnableDraw(void);
 void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot pos + per-transform head height)
 void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
+int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
+void playerPosition_get(f32 dst[3]);
+bool player_isStable(void); // standing on ground
 void controller_getRightStick(s32 controller_index, f32 dst[2]); // merged pad right stick, normalized +-1
 void controller_getJoystick(s32 controller_index, f32 dst[2]);   // merged pad LEFT stick, normalized +-1
 void yaw_set(f32 yaw);      // the player's actual body yaw (degrees)
@@ -126,11 +129,13 @@ extern "C" bool VrGame_StereoActive(void) {
 // the flying ports' Cockpit (no Banjo equivalent) and THEATER is deliberately not in the cycle - it
 // is a comfort/menu choice, not something to trip into mid-jump; select it in Enhancements -> VR.
 extern "C" void VrGame_CycleViewMode(void) {
-    int m = vr_get_view_mode();
-    do {
-        m = (m + 1) % 5;
-    } while (m == VR_VIEW_UNUSED_2 || m == VR_VIEW_THEATER);
-    vr_set_view_mode(m);
+    // The order players expect: FIRST PERSON -> THIRD PERSON -> DIORAMA -> wrap. Theater stays a
+    // menu-only choice, and anything unexpected wraps home to First Person.
+    const int m = vr_get_view_mode();
+    const int next = (m == VR_VIEW_FIRST_PERSON) ? VR_VIEW_THIRD_PERSON
+                   : (m == VR_VIEW_THIRD_PERSON) ? VR_VIEW_DIORAMA
+                                                 : VR_VIEW_FIRST_PERSON;
+    vr_set_view_mode(next);
 }
 
 // ---- immersive first person --------------------------------------------------
@@ -182,7 +187,7 @@ extern "C" f32 port_vrCamDistScale(void) {
     if (mode != VR_VIEW_THIRD_PERSON && mode != VR_VIEW_DIORAMA) {
         return 1.0f;
     }
-    float m = CVarGetFloat("gVRThirdPersonDist", 1.0f);
+    float m = CVarGetFloat("gVRThirdPersonDist", 0.7f);
     if (m < 0.3f) {
         m = 0.3f;
     }
@@ -440,8 +445,6 @@ extern "C" int port_vrHudHidden(void) {
 // The First Person look base lives at file scope so the aim-alignment export below can read it.
 static float sYaw = 0.0f;
 static float sPitch = 0.0f;
-static float sYawRate = 0.0f;   // eased angular velocity (deg/s) - see the comfort shaping below
-static float sPitchRate = 0.0f;
 static bool sBaseValid = false;
 static int sInactiveFrames = 0;
 
@@ -462,8 +465,6 @@ extern "C" void port_vrFpFaceViewYaw(void) {
 
 extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     if (!VrFp_Active()) {
-        sYawRate = 0.0f;
-        sPitchRate = 0.0f;
         // Tolerate short inactive stretches so a loading zone or dialogue can't recenter the view.
         if (sBaseValid && ++sInactiveFrames > 30) {
             sBaseValid = false;
@@ -478,6 +479,57 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     position[0] = eye[0];
     position[1] = eye[1];
     position[2] = eye[2];
+
+    // First person LIFE (gVRFpViewBob, the sm64 port's feel): a small stride bob while walking and
+    // a damped dip on landing, driven by the body's REAL motion so it reads as self-motion rather
+    // than camera waggle. Amplitudes are centimetres at life scale - presence cues, kept far under
+    // the vection threshold, and off entirely in menus or while airborne.
+    if (CVarGetInteger("gVRFpViewBob", 1) != 0) {
+        static float sBobPhase = 0.0f;
+        static float sPrevPos[3] = { 0.0f, 0.0f, 0.0f };
+        static bool sPrevPosValid = false;
+        static float sPrevVy = 0.0f;
+        static float sDip = 0.0f;
+        static float sDipVel = 0.0f;
+        const float dtb = time_getDelta();
+        f32 pp[3];
+        playerPosition_get(pp);
+        float vy = 0.0f, speed = 0.0f;
+        if (sPrevPosValid && dtb > 0.0f) {
+            const float vx = (pp[0] - sPrevPos[0]) / dtb;
+            vy = (pp[1] - sPrevPos[1]) / dtb;
+            const float vz = (pp[2] - sPrevPos[2]) / dtb;
+            speed = sqrtf(vx * vx + vz * vz);
+        }
+        const bool grounded = player_isStable();
+        if (grounded && speed > 40.0f) {
+            sBobPhase += dtb * (5.0f + speed * 0.010f); // stride rate rises gently with speed
+            position[1] += sinf(sBobPhase * 6.2831853f) * 2.0f; // ~2 cm at life scale
+        } else if (!grounded) {
+            sBobPhase = 0.0f;
+        }
+        // Landing: downward speed at the moment of touching ground becomes a spring-damped dip.
+        if (grounded && sPrevVy < -250.0f) {
+            sDipVel -= (-sPrevVy) * 0.012f;
+            sPrevVy = 0.0f;
+        }
+        if (dtb > 0.0f) {
+            sDip += sDipVel * dtb;
+            sDipVel += (-sDip * 60.0f - sDipVel * 10.0f) * dtb;
+            if (sDip < -8.0f) {
+                sDip = -8.0f;
+            }
+            if (sDip > 2.0f) {
+                sDip = 2.0f;
+            }
+        }
+        position[1] += sDip;
+        sPrevVy = grounded ? 0.0f : vy;
+        sPrevPos[0] = pp[0];
+        sPrevPos[1] = pp[1];
+        sPrevPos[2] = pp[2];
+        sPrevPosValid = true;
+    }
 
     if (!sBaseValid) {
         // Capture the base ONCE, from Banjo's facing at the moment First Person engages (+180: the
@@ -503,12 +555,22 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         f32 pr[3];
         player_getRotation(pr);
         float dyaw = fmodf(pr[1] - sPrevPlayerYaw + 540.0f, 360.0f) - 180.0f;
-        if (sPrevYawValid && player_inWater() && CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
+        // UNDERWATER only (the dive state family): surface paddling steers gently and the follow
+        // there read as the view being dragged. And the follow is CAPPED per tick - matching his
+        // full turn rate 1:1 was way too sensitive; 2.5 degrees a tick (~75 deg/s) tracks a real
+        // swim turn while staying under the vection threshold.
+        if (sPrevYawValid && player_inWater() && bsbswim_inSet(bs_getState()) &&
+            CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
             const float mag = sqrtf(move[0] * move[0] + move[1] * move[1]);
-            // The delta cap keeps a load or drone-cam jump from reading as a 180-degree "turn".
-            if (mag > 0.2f && dyaw > -15.0f && dyaw < 15.0f) {
+            if (mag > 0.35f && dyaw > -15.0f && dyaw < 15.0f) {
+                if (dyaw > 2.5f) {
+                    dyaw = 2.5f;
+                }
+                if (dyaw < -2.5f) {
+                    dyaw = -2.5f;
+                }
                 sYaw += dyaw;
             }
         }
@@ -523,15 +585,14 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     const float lookSpeed = CVarGetFloat("gVRFpLookSpeed", 220.0f);
     const float invertX = CVarGetInteger("gVRFpInvertX", 0) ? -1.0f : 1.0f;
 
-    // Comfort shaping, the part that decides whether stick look reads as smooth or as a shove:
-    //  - a cubic response past the deadzone, so small pushes creep and only a full push is fast;
-    //  - the angular VELOCITY is eased toward its target instead of being applied instantly, so a
-    //    turn spins up and coasts down rather than starting and stopping on a hard edge (that
-    //    step change in velocity is what the inner ear reads as a jolt).
+    // DIRECT look, the round-5 contract restored: the view moves exactly while the thumb does and
+    // dead-stops the instant it releases. The velocity easing added later for "comfort" was the
+    // reported sludge - input-to-motion lag IS the discomfort in a headset, not the cure. The
+    // quadratic response stays: fine aim near centre, full rate at full tilt.
     auto curve = [](float v, float dead) {
         if (v > dead) {
             const float t = (v - dead) / (1.0f - dead);
-            return t * t; // quadratic: fine aim near centre, full speed at full tilt (cubic crawled)
+            return t * t;
         }
         if (v < -dead) {
             const float t = (-v - dead) / (1.0f - dead);
@@ -539,20 +600,15 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         }
         return 0.0f;
     };
-    const float kEase = 8.0f; // velocity follows its target with a ~120 ms time constant
-    const float blend = (dt > 0.0f) ? (1.0f - expf(-kEase * dt)) : 1.0f;
 
-    sYawRate += (curve(rs[0], kDead) * lookSpeed * invertX - sYawRate) * blend;
     // Stick right looks RIGHT. Verified in the headset; the sign that reads "correct" from the
     // guRotate(-yaw) math is the one that feels inverted, so the headset wins - do not re-derive.
-    sYaw -= sYawRate * dt;
+    sYaw -= curve(rs[0], kDead) * lookSpeed * invertX * dt;
 
     if (CVarGetInteger("gVRFpVerticalLook", 0) != 0) {
-        sPitchRate += (curve(rs[1], kDead) * lookSpeed * 0.625f - sPitchRate) * blend;
-        sPitch += sPitchRate * dt;
+        sPitch += curve(rs[1], kDead) * lookSpeed * 0.625f * dt;
     } else {
         sPitch = 0.0f;
-        sPitchRate = 0.0f;
     }
 
     // Mouse look, raw: counts to degrees the tick they happen, through the same invert flag as the

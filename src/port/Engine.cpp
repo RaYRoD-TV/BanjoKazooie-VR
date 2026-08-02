@@ -1704,11 +1704,29 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             // xrWaitFrame), paced by the headset, so the HMD runs at its native refresh with smooth
             // head tracking while game logic stays at its own rate.
             vr_begin_frame();
+            // Sim time and display time desync when the interpolation fraction is baked at tick
+            // entry but xrWaitFrame blocks just above - that variable wait is the occasional
+            // translation judder at speed (rotation stays clean because the head pose is always
+            // fresh). Re-sample the fraction from real elapsed tick time AFTER the wait and
+            // interpolate to that instant instead of the pre-baked slot.
+            static std::unordered_map<Mtx*, MtxF> sVrLiveMap;
+            {
+                double frac = sPassBudgetNs > 0 ? (double)NsSince(passT0) / (double)sPassBudgetNs : 1.0;
+                if (frac > 1.0) {
+                    frac = 1.0;
+                }
+                if (frac >= 0.999) {
+                    sVrLiveMap.clear(); // effectively the keyframe: no replacements
+                } else {
+                    FrameInterpolation_Interpolate((float)frac, sVrLiveMap);
+                }
+            }
             if (VrGame_StereoActive()) {
                 const int eyes = vr_eye_count();
                 for (int e = 0; e < eyes; e++) {
-                    interpreter->RunVrEye(Commands, m, vr_eye_viewproj(e), vr_sky_viewproj(e), vr_hud_viewproj(e),
-                                          vr_full2d_viewproj(e), nullptr, vr_eye_width(e), vr_eye_height(e));
+                    interpreter->RunVrEye(Commands, sVrLiveMap, vr_eye_viewproj(e), vr_sky_viewproj(e),
+                                          vr_hud_viewproj(e), vr_hud_viewproj_flat(e), vr_full2d_viewproj(e),
+                                          nullptr, vr_eye_width(e), vr_eye_height(e));
                     vr_submit_eye_texture(e, interpreter->GetVrFbTextureId(), vr_eye_width(e), vr_eye_height(e));
                 }
             } else {
@@ -1716,7 +1734,7 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                 // head-locked panel quad (no stereo substitution) - scripted cameras read as sickness
                 // in stereo, and 2D screens have nothing to gain from it.
                 vr_set_panel_mode(true);
-                interpreter->RunVrPanel(Commands, m, vr_overlay_width(), vr_overlay_height());
+                interpreter->RunVrPanel(Commands, sVrLiveMap, vr_overlay_width(), vr_overlay_height());
                 vr_submit_panel_texture(interpreter->GetVrFbTextureId(), vr_overlay_width(), vr_overlay_height());
             }
             if (menuOpen) {
@@ -1742,7 +1760,10 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                 const bool stereo = VrGame_StereoActive();
                 const int sw = stereo ? vr_eye_width(0) : vr_overlay_width();
                 const int sh = stereo ? vr_eye_height(0) : vr_overlay_height();
-                vr_mirror_game_desktop(interpreter->GetVrFbTextureId(), sw, sh, (int)mW, (int)mH);
+                // Stereo sources get the central crop: the raw eye texture is a 100+ degree
+                // asymmetric frustum that reads as a fisheye on a monitor. Panel sources are
+                // already flat-framed and mirror whole.
+                vr_mirror_game_desktop(interpreter->GetVrFbTextureId(), sw, sh, (int)mW, (int)mH, stereo ? 1 : 0);
             }
             sLastSubFrameNs = NsSince(runT0);
             interpreter->EndFrame();
@@ -1778,7 +1799,7 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                     // Skip the map-entry sequence (jiggy wipe + camera swoop, ~5 s): the dumps must
                     // show settled gameplay or they get compared against the wrong moment.
                     if (sFrameNo++ >= 300 && (sFrameNo % 30) == 0) {
-                        float eyeVP[16], skyVP[16], hudVP[16], full2D[16];
+                        float eyeVP[16], skyVP[16], hudVP[16], hudFlatVP[16], full2D[16];
                         const int dw = 1024, dh = 1024;
                         char path[64];
                         // Panel render first: identical off-screen machinery with NO stereo
@@ -1790,12 +1811,12 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                         // BOTH eyes, with the live separation math mirrored in the synth matrices.
                         // The L/R pair is what proves per-draw stereo ROUTING: the registered sky
                         // pass must land identical between the eyes while the world separates.
-                        vr_debug_synth_matrices(0, eyeVP, skyVP, hudVP, full2D);
-                        interpreter->RunVrEye(Commands, m, eyeVP, skyVP, hudVP, full2D, nullptr, dw, dh);
+                        vr_debug_synth_matrices(0, eyeVP, skyVP, hudVP, hudFlatVP, full2D);
+                        interpreter->RunVrEye(Commands, m, eyeVP, skyVP, hudVP, hudFlatVP, full2D, nullptr, dw, dh);
                         snprintf(path, sizeof(path), "vr_eye_dump_%02d.bmp", sDumpBudget);
                         vr_debug_dump_texture(interpreter->GetVrFbTextureId(), dw, dh, path);
-                        vr_debug_synth_matrices(1, eyeVP, skyVP, hudVP, full2D);
-                        interpreter->RunVrEye(Commands, m, eyeVP, skyVP, hudVP, full2D, nullptr, dw, dh);
+                        vr_debug_synth_matrices(1, eyeVP, skyVP, hudVP, hudFlatVP, full2D);
+                        interpreter->RunVrEye(Commands, m, eyeVP, skyVP, hudVP, hudFlatVP, full2D, nullptr, dw, dh);
                         snprintf(path, sizeof(path), "vr_eye_r_dump_%02d.bmp", sDumpBudget);
                         vr_debug_dump_texture(interpreter->GetVrFbTextureId(), dw, dh, path);
                         sDumpBudget--;

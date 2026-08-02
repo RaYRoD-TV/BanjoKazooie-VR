@@ -101,7 +101,10 @@ void vr_menu_mirror_desktop(int w, int h);
 // Mirror the rendered VR game frame (managed fb texture: last eye / panel) onto the desktop window when the
 // MENU IS CLOSED, so the flat window shows the game instead of flickering stale back-buffers. Call ONCE per
 // frame after the eye loop, before the engine SwapBuffers. srcW/srcH = managed fb size; dstW/dstH = window.
-void vr_mirror_game_desktop(unsigned int glTex, int srcW, int srcH, int dstW, int dstH);
+// cropForEye: the stereo eye texture carries a very wide asymmetric frustum that reads as a fisheye
+// on a flat monitor - crop the central region to the window's aspect so every view mode gives a
+// watchable desktop picture. Pass 0 for panel/menu sources (already flat-framed).
+void vr_mirror_game_desktop(unsigned int glTex, int srcW, int srcH, int dstW, int dstH, int cropForEye);
 // Apply gVRImGuiOpacity to the VR menu panel (alpha into the menu texture). Call after the menu's ImGui
 // has rendered into the FBO and before the panel is presented. No-op at full opacity.
 void vr_menu_apply_opacity(void);
@@ -160,8 +163,12 @@ void vr_set_hud_menu_mode(int on);
 // The game side collides this against the world - the VR layer has no collision of its own.
 void vr_get_head_offset_m(float out[3]);
 // Head-locked HUD view-projection for an eye (16 floats, row-vector). The renderer multiplies the game's
-// 2D ortho matrix by this for post-3D HUD draws so the HUD sits at a comfortable distance.
+// 2D ortho matrix by this for post-3D HUD draws so the HUD sits at a comfortable distance. The plane
+// keeps a few millimetres of authored ortho-Z ordering (widget layers z-fought when flattened).
 const float* vr_hud_viewproj(int eye);
+// Same plane with Z fully flattened - for 3D content drawn INSIDE the HUD (its own perspective load):
+// perspective clip-Z through the ordering scale reads as metres of depth and goes cross-eyed.
+const float* vr_hud_viewproj_flat(int eye);
 // Full-FOV head-locked view-projection for an eye (16 floats, row-vector). The renderer multiplies a
 // screen-space 2D ortho matrix by this (pre-3D background / intro overlays) so that 2D fills the view
 // head-locked instead of being emitted raw - raw screen-space 2D doubles under the per-eye asymmetric
@@ -219,7 +226,10 @@ void vr_shutdown(void);
 // scale knobs, and the LIVE per-eye separation math around the centre) so the interpreter's
 // RunVrEye can run headless per eye, and dump its texture to a BMP on disk. Driven by the
 // BK_VR_EYEDUMP env var (see Engine.cpp); no effect on normal play. eye: 0 = left, 1 = right.
-void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16], float hudVP[16], float full2D[16]);
+// BK_VR_FOVTEST="l,r,u,d" (degrees, signed) overrides the synthetic fov with an asymmetric one, so
+// canted-display geometry (the one live variable a symmetric synth never exercises) is testable headless.
+void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16], float hudVP[16], float hudFlatVP[16],
+                             float full2D[16]);
 int  vr_debug_dump_texture(unsigned int glTextureId, int w, int h, const char* path);
 
 #ifdef __cplusplus

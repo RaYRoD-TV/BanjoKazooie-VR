@@ -32,8 +32,8 @@ void LighthouseMenu::AddMenuVR() {
                               "Theater: the flat frame on a virtual screen (most comfortable).\n\n"
                               "Right stick click cycles these in-game.")
                      .ComboMap({
-                         { VR_VIEW_THIRD_PERSON, "Third Person" },
                          { VR_VIEW_FIRST_PERSON, "First Person" },
+                         { VR_VIEW_THIRD_PERSON, "Third Person" },
                          { VR_VIEW_DIORAMA, "Diorama" },
                          { VR_VIEW_THEATER, "Theater" },
                      }));
@@ -55,13 +55,13 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Eye Height", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVREyeHeight")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.0f).Max(1.0f).Step(0.01f).DefaultValue(0.16f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(1.5f).Step(0.01f).DefaultValue(-1.09f).Tooltip(
             "Metres to raise or lower the eye in Third Person."));
 
     AddWidget(path, "Camera Distance", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRThirdPersonDist")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(0.3f).Max(3.0f).Step(0.05f).DefaultValue(0.8f).Tooltip(
+        .Options(FloatSliderOptions().Min(0.3f).Max(3.0f).Step(0.05f).DefaultValue(0.7f).Tooltip(
             "How far the chase camera sits from Banjo, as a multiple of the game's own distance. "
             "1.0 is stock, 0.5 is right behind his shoulder, 2.0 is a wide view. Scales the "
             "distance the game itself asks for, so wall collision keeps working normally."));
@@ -142,19 +142,19 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Diorama Scale", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaWorldScale")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(200.0f).Max(12000.0f).Step(50.0f).DefaultValue(6200.0f).Tooltip(
+        .Options(FloatSliderOptions().Min(200.0f).Max(12000.0f).Step(50.0f).DefaultValue(8000.0f).Tooltip(
             "Game units per metre for the tabletop. HIGHER makes the miniature smaller."));
 
     AddWidget(path, "Diorama Distance", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaDist")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.0f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.6f).Tooltip(
             "Metres the tabletop sits in front of you."));
 
     AddWidget(path, "Diorama Height", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaHeight")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.5f).Max(1.5f).Step(0.02f).DefaultValue(-0.06f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(1.5f).Step(0.02f).DefaultValue(-0.4f).Tooltip(
             "Metres the tabletop sits above (+) or below (-) eye level."));
 
     path.column = SECTION_COLUMN_2;
@@ -270,6 +270,20 @@ void LighthouseMenu::AddMenuVR() {
         .RaceDisable(false)
         .Options(FloatSliderOptions().Min(0.02f).Max(0.60f).Step(0.02f).DefaultValue(0.10f).Tooltip(
             "Degrees of turn per mouse count. Higher is faster."));
+
+    AddWidget(path, "Menu Opacity", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRMenuOpacity")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions().Min(0.3f).Max(1.0f).Step(0.05f).DefaultValue(0.85f).Tooltip(
+            "How solid the menus and pause panel look in the headset. Lower shows the live game "
+            "through them."));
+
+    AddWidget(path, "First Person View Bob", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRFpViewBob")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "A small stride bob while walking and a dip on landing, driven by Banjo's real motion. "
+            "Centimetres, not camera waggle - turn off if you prefer a perfectly still base."));
 
     AddWidget(path, "Stereo Cutscenes", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRCutscenes")

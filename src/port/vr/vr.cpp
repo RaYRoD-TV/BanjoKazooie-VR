@@ -110,7 +110,8 @@ static float sWorldScale = 100.0f; // game units per meter for THIRD PERSON (low
                                    // stands ~150 units ≈ 1.5 m. Live-tunable (gVRWorldScale).
 static float sStereoScale = 1.0f;  // stereo separation strength
 static float sHeadScale   = 0.1f;  // 6DoF head-motion amount (1 = full positional)
-static float sEyeHeight   = -0.29f; // meters above the head anchor for THIRD PERSON
+static float sEyeHeight   = -1.09f; // meters above the head anchor for THIRD PERSON (re-trimmed after
+                                    // the origin normalization - tuned in-headset on the fixed build)
 static float sMenuDist    = 3.4f; // menu/title panel distance (m) - comfortable, not in your face
 static float sMenuSize    = 3.6f; // menu/title panel width (m)
 
@@ -131,13 +132,14 @@ static float sThirdPersonDist    = 0.0f;    // Third Person camera distance offs
                                             // Banjo, - = closer. 0 = stock chase distance.
 static float sCockpitForward     = 0.0f;    // slot 2 unused in Banjo (donor cockpit mode); kept so the
 static float sCockpitHeight      = -0.15f;  // shared eye-matrix code stays identical across the ports.
-static float sDioramaWorldScale  = 6200.0f; // Diorama world scale (game units/m), INDEPENDENT of the global
+static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m), INDEPENDENT of the global
                                             // World Scale so tuning the tabletop never touches Third/First
-                                            // person. Higher = smaller tabletop. Banjo worlds span ~10-20k
-                                            // units, so 1500 puts a whole level around a meter wide.
-static float sDioramaDist        = 0.00f;   // meters the tabletop sits in front of you (Diorama)
-static float sDioramaHeight      = -0.06f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
-static float sMenuOpacity        = 0.5f;    // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
+                                            // person. Higher = smaller tabletop. 8000 with the forward and
+                                            // downward placement below reads as a MODEL on a table in front
+                                            // of you rather than a world you happen to be huge in.
+static float sDioramaDist        = 0.60f;   // meters the tabletop sits in front of you (Diorama)
+static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
+static float sMenuOpacity        = 0.85f;   // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
 
 // World-distance fog for the stereo modes (gVRFogMode = 1). Near/far are METERS AT LIFE SIZE (the default
 // 100 game-units-per-meter mapping), so the fogged distance stays anchored to the WORLD - changing a view
@@ -203,6 +205,8 @@ static float sRcPos[3] = { 0, 0, 0 };    // captured head x/Y/z - height include
 // render onto a view-space quad so it sits at a comfortable distance instead of at your face. Built per
 // eye from the symmetric fov; zero eye-offset -> zero disparity (relaxed, far-feeling), head-locked.
 static float sHudVP[2][4][4];
+static float sHudVPFlat[2][4][4]; // same plane, Z fully flattened - for 3D drawn INSIDE the HUD, whose
+                                  // perspective clip-Z through the ordering scale reads as metres of depth
 static float sFull2DVP[2][4][4]; // full-FOV head-locked plane for screen-space 2D in the eye pass (anti-double)
 static float sHudScale = 0.35f; // fraction of the eye FOV the HUD fills (smaller = tighter, more central)
 // HUD LOCK = WORLD (gVRHudWorldLock): yaw-pin the in-race HUD plane to the room direction it was facing
@@ -220,6 +224,9 @@ static PFN_xrGetOpenGLGraphicsRequirementsKHR pfnGetGLReq = NULL;
 
 extern "C" const float* vr_hud_viewproj(int eye) {
     return (eye >= 0 && eye < 2) ? &sHudVP[eye][0][0] : NULL;
+}
+extern "C" const float* vr_hud_viewproj_flat(int eye) {
+    return (eye >= 0 && eye < 2) ? &sHudVPFlat[eye][0][0] : NULL;
 }
 extern "C" const float* vr_full2d_viewproj(int eye) {
     return (eye >= 0 && eye < 2) ? &sFull2DVP[eye][0][0] : NULL;
@@ -554,6 +561,12 @@ static void vr_build_eye_matrix(int eye) {
         mat_proj_fov(Phud, sRenderFov[eye], 0.05f, 100.0f);
         mat_mul(MV, M, Vhud);
         mat_mul(sHudVP[eye], MV, Phud);
+        // Flat-Z twin for 3D content drawn inside the HUD (a pause portrait's own perspective
+        // load): its clip-Z through the ordering scale would read as metres of depth on the
+        // plane and go cross-eyed. 2D HUD keeps the ordered plane above.
+        M[2][2] = 0.0f;
+        mat_mul(MV, M, Vhud);
+        mat_mul(sHudVPFlat[eye], MV, Phud);
     }
 
     // Full-FOV head-locked plane for SCREEN-SPACE 2D drawn during the eye pass (course-open intro overlays,
@@ -589,13 +602,34 @@ static void vr_sync_tunables(void); // defined next to vr_begin_frame; the harne
 // harness cannot see stereo AT ALL: a zero-separation sky fix would measure 0.00 against 0.00,
 // which is the round-13 blind-seam trap wearing a new hat. eye: 0 = left, 1 = right.
 extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16], float hudVP[16],
-                                        float full2D[16]) {
+                                        float hudFlatVP[16], float full2D[16]) {
     vr_sync_tunables(); // so eye dumps reflect the CVars, not the compile-time defaults
     XrFovf fov;
     fov.angleLeft = -0.8727f;
     fov.angleRight = 0.8727f;
     fov.angleUp = 0.8727f;
     fov.angleDown = -0.8727f;
+    // BK_VR_FOVTEST="l,r,u,d" (signed degrees): an ASYMMETRIC synthetic fov, mirrored per eye like a
+    // canted-display headset reports. The one live geometry variable a symmetric synth never
+    // exercises - added while hunting a live-only black sky.
+    {
+        static int sFovParsed = 0;
+        static float fl, fr, fu, fd;
+        if (sFovParsed == 0) {
+            const char* t = getenv("BK_VR_FOVTEST");
+            sFovParsed = (t != NULL && sscanf(t, "%f,%f,%f,%f", &fl, &fr, &fu, &fd) == 4) ? 1 : -1;
+        }
+        if (sFovParsed == 1) {
+            const float d2r = 0.01745329252f;
+            if (eye == 0) {
+                fov.angleLeft = fl * d2r; fov.angleRight = fr * d2r;
+            } else {
+                fov.angleLeft = -fr * d2r; fov.angleRight = -fl * d2r; // mirrored cant
+            }
+            fov.angleUp = fu * d2r;
+            fov.angleDown = fd * d2r;
+        }
+    }
 
     float effScale = (sViewMode == 3) ? sDioramaWorldScale : (sViewMode == 1) ? sFirstPersonScale : sWorldScale;
     float invS = 1.0f / (effScale < 1.0f ? 1.0f : effScale);
@@ -666,6 +700,9 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         mat_proj_fov(Ph, fov, 0.05f, 100.0f);
         mat_mul(MP, M, Ph);
         memcpy(hudVP, MP, sizeof(MP));
+        M[2][2] = 0.0f; // flat twin for perspective-in-HUD content, mirroring the live build
+        mat_mul(MP, M, Ph);
+        memcpy(hudFlatVP, MP, sizeof(MP));
     }
     {
         float D = 2.0f;
@@ -1372,7 +1409,12 @@ static void vr_poll_events(void) {
             sRecenterSet = false;
             sRcQy = 0.0f;
             sRcQw = 1.0f;
-            printf("[VR] reference space recentered; anchors reset.\n");
+            // Then immediately re-capture OUR correction on the new space: this is what makes the
+            // RUNTIME's own recenter (the system button held) land the height and framing the same
+            // way the in-game recenter does, instead of leaving the origin wherever the runtime
+            // put it.
+            sRecenterRequest = true;
+            printf("[VR] reference space recentered; anchors reset, re-capturing origin.\n");
         }
         ev.type = XR_TYPE_EVENT_DATA_BUFFER;
     }
@@ -1441,7 +1483,9 @@ extern "C" void vr_fog_linear_coeffs(float* mul, float* off) {
     *off = -nearW * (*mul);
 }
 extern "C" void  vr_reset_defaults(void) {
-    sWorldScale = 100.0f; sStereoScale = 1.0f; sHeadScale = 0.1f; sEyeHeight = -0.29f;
+    // Deliberately does NOT touch the view mode: a reset should restore numbers, not teleport the
+    // player into a different way of seeing the world.
+    sWorldScale = 100.0f; sStereoScale = 1.0f; sHeadScale = 0.1f; sEyeHeight = -1.09f;
     sMenuDist = 3.4f; sMenuSize = 3.6f;
     sHeadRestSet = false; sHeadWarmup = 0; sPanelAnchorValid = false;
     printf("[VR] reset to defaults.\n");
@@ -1896,7 +1940,8 @@ extern "C" void vr_menu_mirror_desktop(int w, int h) {
 // per-step fights the eye renders churning fb0 (same reason as vr_menu_mirror_desktop). The managed fb is
 // invert-Y=true (bottom-left origin) like the eyes, so flip vertically into fb0 (top-left) - identical flip
 // to vr_blit_into. srcW/srcH = the managed fb's rendered size (eye or panel); dstW/dstH = window pixels.
-extern "C" void vr_mirror_game_desktop(unsigned int glTex, int srcW, int srcH, int dstW, int dstH) {
+extern "C" void vr_mirror_game_desktop(unsigned int glTex, int srcW, int srcH, int dstW, int dstH,
+                                       int cropForEye) {
     if (glTex == 0 || srcW <= 0 || srcH <= 0) return;
     if (dstW <= 0) dstW = 1;
     if (dstH <= 0) dstH = 1;
@@ -1904,8 +1949,26 @@ extern "C" void vr_mirror_game_desktop(unsigned int glTex, int srcW, int srcH, i
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)glTex, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
+    int sx0 = 0, sy0 = 0, sx1 = srcW, sy1 = srcH;
+    if (cropForEye) {
+        // The eye texture covers a 100+ degree asymmetric frustum: blitted whole it reads as a
+        // fisheye and the interesting middle is tiny. Crop the central region at the window's
+        // aspect so every stereo mode gives a watchable flat picture (the periphery only exists
+        // for the headset anyway).
+        const float kKeepV = 0.62f; // central fraction of the eye's height to show
+        float ch = srcH * kKeepV;
+        float cw = ch * ((float)dstW / (float)dstH);
+        if (cw > (float)srcW) {
+            cw = (float)srcW;
+            ch = cw * ((float)dstH / (float)dstW);
+        }
+        sx0 = (int)((srcW - cw) * 0.5f);
+        sy0 = (int)((srcH - ch) * 0.5f);
+        sx1 = sx0 + (int)cw;
+        sy1 = sy0 + (int)ch;
+    }
     // Flip vertically (src bottom -> dst top): dst Y runs dstH..0, like vr_blit_into's swapchain blit.
-    glBlitFramebuffer(0, 0, srcW, srcH, 0, dstH, dstW, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBlitFramebuffer(sx0, sy0, sx1, sy1, 0, dstH, dstW, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 }
@@ -2136,7 +2199,7 @@ extern "C" void vr_menu_render_begin(int w, int h) { (void)w; (void)h; }
 extern "C" void vr_menu_render_present(int w, int h) { (void)w; (void)h; }
 extern "C" void vr_menu_mirror_desktop(int w, int h) { (void)w; (void)h; }
 extern "C" void vr_menu_apply_opacity(void) {}
-extern "C" void vr_mirror_game_desktop(unsigned int t, int sw, int sh, int dw, int dh) { (void)t; (void)sw; (void)sh; (void)dw; (void)dh; }
+extern "C" void vr_mirror_game_desktop(unsigned int t, int sw, int sh, int dw, int dh, int c) { (void)t; (void)sw; (void)sh; (void)dw; (void)dh; (void)c; }
 extern "C" const float* vr_eye_viewproj(int e) { (void)e; return 0; }
 extern "C" const float* vr_sky_viewproj(int e) { (void)e; return 0; }
 extern "C" void vr_set_sky_fov(float a, float b) { (void)a; (void)b; }
@@ -2167,13 +2230,14 @@ extern "C" float vr_get_hud_dist(void)  { return 0; }   extern "C" void vr_set_h
 extern "C" int   vr_get_view_mode(void) { return 0; }   extern "C" void vr_set_view_mode(int m) { (void)m; }
 extern "C" float vr_fp_forward_game_units(void) { return 0.0f; }
 extern "C" const float* vr_hud_viewproj(int e) { (void)e; return 0; }
+extern "C" const float* vr_hud_viewproj_flat(int e) { (void)e; return 0; }
 extern "C" const float* vr_full2d_viewproj(int e) { (void)e; return 0; }
 extern "C" void  vr_reset_defaults(void) {}
 extern "C" void  vr_recenter(void) {}
 extern "C" void  vr_set_hud_menu_mode(int on) { (void)on; }
 extern "C" float vr_head_yaw_rad(void) { return 0; }
 extern "C" float vr_head_pitch_rad(void) { return 0; }
-extern "C" void vr_debug_synth_matrices(int eye, float e[16], float s[16], float h[16], float f[16]) { (void)eye; (void)e; (void)s; (void)h; (void)f; }
+extern "C" void vr_debug_synth_matrices(int eye, float e[16], float s[16], float h[16], float hf[16], float f[16]) { (void)eye; (void)e; (void)s; (void)h; (void)hf; (void)f; }
 extern "C" int  vr_debug_dump_texture(unsigned int t, int w, int hh, const char* p) { (void)t; (void)w; (void)hh; (void)p; return 0; }
 extern "C" bool  vr_controllers_active(void) { return false; }
 extern "C" unsigned vr_controller_buttons(void) { return 0; }
