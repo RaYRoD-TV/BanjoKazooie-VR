@@ -88,14 +88,6 @@ void LighthouseMenu::AddMenuVR() {
             "Whether the right stick may pitch the First Person view up/down. Off = vertical stays "
             "on your head only; the stick still turns left/right either way."));
 
-    AddWidget(path, "Flip Cam", WIDGET_CVAR_CHECKBOX)
-        .CVar("gVRFpFlipCam")
-        .RaceDisable(false)
-        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
-            "The view somersaults with Banjo in First Person: a full turn on the flip jump (Z then A) "
-            "and a tuck into the beak buster (A then Z), driven by the move's own animation so it "
-            "matches exactly. Turn off to keep the view level through every move."));
-
     AddWidget(path, "Underwater A Dashes", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRSwimADash")
         .RaceDisable(false)

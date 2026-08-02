@@ -948,7 +948,10 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
 //   the animation; past it the angle simply HOLDS nose-down, which is where Banjo's head actually
 //   is for the whole fall, and the state ending on impact releases it.
 static float VrFlipAngleRad(void) {
-    if (vr_get_view_mode() != VR_VIEW_FIRST_PERSON || CVarGetInteger("gVRFpFlipCam", 1) == 0) {
+    // IMMERSIVE CAM is the enabler. "Your head is Banjo's head" and "your view turns when his
+    // body turns" are one idea, so they are one switch - a separate FLIP CAM row was a second
+    // knob for the same promise, and the one people actually found was this one.
+    if (vr_get_view_mode() != VR_VIEW_FIRST_PERSON || CVarGetInteger("gVRFpImmersive", 1) == 0) {
         return 0.0f;
     }
     if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {

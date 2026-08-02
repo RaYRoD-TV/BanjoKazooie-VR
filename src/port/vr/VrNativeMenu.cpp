@@ -73,7 +73,6 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRImGuiOpacity", 0.95f);
     CVarSetInteger("gVRFpViewBob", 0);
     CVarSetInteger("gVRFpVerticalLook", 1);
-    CVarSetInteger("gVRFpFlipCam", 1);
     CVarSetInteger("gVRSwimADash", 1);
     CVarSetInteger("gVRFpHeadMove", 1);
     CVarSetInteger("gVRFpImmersive", 1);
@@ -133,9 +132,6 @@ static const VrRow kRowsViewFp[] = {
     { "STEREO",      ROW_FLOAT, "gVRStereo",               0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
     { "EYE RAISE",   ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
     { "EYE FORWARD", ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
-    // FLIP CAM also lives on the FIRST PERSON page, but this is the page a first-person player
-    // actually opens - a toggle nobody can find reads as a toggle that was never added.
-    { "FLIP CAM",    ROW_INT01, "gVRFpFlipCam",            1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW SOMERSAULTS WITH FLIP JUMPS AND BEAK BUSTERS." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",             0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",              0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
     { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
@@ -158,7 +154,6 @@ static const VrRow kRowsFp[] = {
     { "LEAN",          ROW_FLOAT, "gVRHeadScale",            0.05f, 0.0f, 1.5f, 0.1f, NULL, NULL, -1, "HOW MUCH YOUR REAL BODY MOVEMENT MOVES THE CAMERA." },
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },
     { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
-    { "FLIP CAM",      ROW_INT01, "gVRFpFlipCam",            1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW SOMERSAULTS WITH FLIP JUMPS AND BEAK BUSTERS." },
     { "INVERT LOOK X", ROW_INT01, "gVRFpInvertX",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT STICK LOOK." },
     { "EYE FORWARD",   ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "EYE RAISE",     ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
