@@ -1673,6 +1673,19 @@ extern "C" void vr_begin_frame(void) {
     sFrameState.next = NULL;
     if (!xrok(xrWaitFrame(sSession, &fwi, &sFrameState), "xrWaitFrame")) return;
 
+    // Say the headset's rate out loud once (and again if the runtime changes it mid-session, which
+    // Quest does when you switch refresh in its settings): this is the number the whole frame pace
+    // is built on, and "why am I capped at 60" is answered by one log line instead of a slider hunt.
+    {
+        static int sPrevHz = 0;
+        const int hz = vr_display_refresh_hz();
+        if (hz != sPrevHz) {
+            printf("[VR] headset refresh %d Hz - pacing the game to match.\n", hz);
+            fflush(stdout);
+            sPrevHz = hz;
+        }
+    }
+
     XrFrameBeginInfo fbi = { XR_TYPE_FRAME_BEGIN_INFO };
     if (!xrok(xrBeginFrame(sSession, &fbi), "xrBeginFrame")) return;
     sFrameBegun = true;

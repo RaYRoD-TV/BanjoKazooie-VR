@@ -2016,6 +2016,23 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
 }
 
 uint32_t GameEngine::GetInterpolationFPS() {
+#if defined(ENABLE_VR) && defined(_WIN32)
+    // IN VR THE DISPLAY IS THE HEADSET, not the window. "Match Refresh Rate" asked SDL for the
+    // desktop monitor's rate, so a player on a 60 Hz monitor with a 72 Hz Quest got a 60 Hz target:
+    // sub-frames are quantized per game tick (see GetInterpolationFrameCount), 60 rounds down to 2
+    // per tick = 60 renders a second, and the compositor never receives a fresh frame for every
+    // display period - the headset sits at 60 and reprojects. Reported from the field, worked
+    // around by hand with the manual slider at 90 (which is the same 3 sub-frames this now picks).
+    // The headset's own predicted display period is the authority and needs no extension, so this
+    // is automatic on any runtime and any refresh rate. Turning Match Refresh Rate OFF still hands
+    // control to the manual slider below - an explicit override stays an override.
+    if (vr_is_active() && CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 1)) {
+        const int hz = vr_display_refresh_hz();
+        if (hz > 0) {
+            return (uint32_t)hz;
+        }
+    }
+#endif
     if (CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 1)) { // default ON: pace interpolation at the display's rate
         return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
 
