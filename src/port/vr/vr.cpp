@@ -480,16 +480,21 @@ static void vr_build_eye_matrix(int eye) {
     // per-eye orientation and fov as the submitted pose, so the compositor's reprojection cancels
     // cleanly and both eyes fuse it at infinity while the world keeps full stereo.
     {
+        // Identical to the eye matrix in EVERY term - the full A (scale AND the per-mode framing
+        // translations) and the same head pose - except the position is the shared centre, no
+        // per-eye IPD offset. The first version dropped A's translations "to centre the sky on
+        // the viewer", which broke the one invariant that matters: the sky must render exactly
+        // like the world pass minus separation. With the sky-eye displaced from the world-eye by
+        // the framing offsets (plus a runtime origin error), a player could end up OUTSIDE the
+        // sky mesh - the wild report's floating faceted dome with black past its rim.
         XrPosef skyPose = pose;
         skyPose.position.x = dcx;
         skyPose.position.y = dcy;
         skyPose.position.z = dcz;
-        float Asky[4][4] = { { 0 } };
-        Asky[0][0] = invS; Asky[1][1] = invS; Asky[2][2] = invS; Asky[3][3] = 1.0f;
         float Vsky[4][4], Psky[4][4], AVsky[4][4];
         mat_view_from_pose(Vsky, skyPose);
         mat_proj_fov(Psky, fov, zn, zf);
-        mat_mul(AVsky, Asky, Vsky);
+        mat_mul(AVsky, A, Vsky);
         mat_mul(sSkyVP[eye], AVsky, Psky);
     }
     (void) sSkyCamValid; // camera rotation is never folded in - the game's own projection MULs carry it
@@ -628,13 +633,13 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     mat_mul(out, AV, P);
     memcpy(eyeVP, out, sizeof(out));
 
-    // Sky: scale-only A, view at the shared centre (identity), same projection - by construction
-    // both eyes get the identical matrix, which IS the zero-separation contract under test.
+    // Sky: the FULL A (framing translations included, mirroring the live build), view at the
+    // shared centre (identity), same projection - by construction both eyes get the identical
+    // matrix, which IS the zero-separation contract under test, and the sky-eye sits exactly
+    // where the world-eye does minus the IPD term.
     {
-        float Asky[4][4] = { { 0 } };
-        Asky[0][0] = invS; Asky[1][1] = invS; Asky[2][2] = invS; Asky[3][3] = 1.0f;
         float skyOut[4][4];
-        mat_mul(skyOut, Asky, P);
+        mat_mul(skyOut, A, P);
         memcpy(skyVP, skyOut, sizeof(skyOut));
     }
 
