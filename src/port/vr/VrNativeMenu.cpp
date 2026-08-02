@@ -115,7 +115,7 @@ struct VrPage {
 // broken - the first wild user did exactly that. Three variants of the first page, picked live.
 static const VrRow kRowsView[] = {
     { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",        1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
-    { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
+    { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW TURNS WITH BANJO WHILE YOU SWIM OR FLY." },
     { "SWIM A DASH", ROW_INT01, "gVRSwimADash",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "UNDERWATER A IS THE FAST DASH AND B THE SLOW PADDLE." },
     { "WORLD SCALE", ROW_FLOAT, "gVRWorldScale",      5.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "GAME UNITS PER METRE. LOWER MAKES THE WORLD BIGGER." },
     { "STEREO",      ROW_FLOAT, "gVRStereo",          0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
@@ -128,7 +128,7 @@ static const VrRow kRowsView[] = {
 
 static const VrRow kRowsViewFp[] = {
     { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",             1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
-    { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",         1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "IN WATER THE VIEW TURNS WITH BANJO WHILE YOU STEER." },
+    { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",         1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW TURNS WITH BANJO WHILE YOU SWIM OR FLY." },
     { "FP SCALE",    ROW_FLOAT, "gVRFirstPersonScale",     1.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "WORLD SIZE IN FIRST PERSON ONLY." },
     { "STEREO",      ROW_FLOAT, "gVRStereo",               0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
     { "EYE RAISE",   ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },

@@ -28,6 +28,7 @@ bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
 bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
 s32  func_80294524(void); // nonzero while the game HOLDS you at the surface - the state where A jumps out
+int bsbfly_inSet(int state); // nonzero in the FLIGHT state family - flying steers like swimming does
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
 // The player's animation clock, for the flip cam. AnimCtrl is opaque here - only the normalized
 // 0..1 position matters, and C linkage cares about the name, not the pointer's type.
@@ -621,8 +622,14 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         // follow only when genuinely submerged AWAY from the surface. Liveness-stamped like every
         // bs-state consumer (round 31). The follow stays CAPPED per tick - 2.5 degrees (~75
         // deg/s) tracks a real swim turn while staying under the vection threshold.
-        if (sPrevYawValid && BsStateIsLive() && player_inWater() && bsbswim_inSet(bs_getState()) &&
-            !func_802A73BC() &&
+        // FLYING steers exactly like swimming: the left stick banks Banjo and the world-stable base
+        // otherwise leaves you flying sideways, fighting the stick to see where you are going. Same
+        // follow, same cap, same only-while-you-are-commanding-it comfort rule - and the same toggle,
+        // because "the view follows me while I steer" is one idea, not two.
+        const s32 bsNow = bs_getState();
+        const bool swimFollow = player_inWater() && bsbswim_inSet(bsNow) && !func_802A73BC();
+        const bool flyFollow = bsbfly_inSet(bsNow);
+        if (sPrevYawValid && BsStateIsLive() && (swimFollow || flyFollow) &&
             CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
