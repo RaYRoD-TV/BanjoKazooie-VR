@@ -7,6 +7,10 @@
 
 // [port] VR first person: face Banjo where the player is looking before an aim state initializes.
 extern void port_vrFpFaceViewYaw(void);
+// [port] Freshness stamp: bs_getState() is a raw global nothing clears when gameplay ends, so
+// consumers outside the player tick are reading a corpse (a drowned save carried BS_54_SWIM_DIE
+// all the way to the file select screen). Stamped every live state-machine tick.
+extern void port_vrBsTicked(void);
 
 s32 D_8037D160; //prev_state
 s32 D_8037D164; //state
@@ -66,6 +70,7 @@ s32 bs_getNextState(void){
 }
 
 void bs_updateState(void){
+    port_vrBsTicked(); // [port] the only proof a live player is behind bs_getState()
     if(bsList_getUpdateMethod(D_8037D164) != NULL)
         bsList_getUpdateMethod(D_8037D164)();
 }

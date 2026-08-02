@@ -680,13 +680,32 @@ extern "C" int port_vrImGuiMenuVisible(void) {
 
 extern "C" void port_vrNativeMenu_feedPad(unsigned short button, signed char stickX, signed char stickY);
 
+// Freshness window for the player state machine. bs_updateState stamps every LIVE player tick;
+// MergePad decrements once per input tick. Nothing clears bs_getState() or player_inWater() when
+// gameplay ENDS (both reset only inside bsmethods_reset, on the NEXT spawn), and the file select
+// screen runs at GAME_MODE_3_NORMAL - measured, not assumed - so neither the mode nor those
+// globals can tell "swimming" from "staring at the save screen with a drowned corpse's state".
+// Only the tick stamp can: no live player, no stamp, and the window dies in 3 input ticks.
+static int sBsFresh = 0;
+extern "C" void port_vrBsTicked(void) {
+    sBsFresh = 3;
+}
+static bool BsStateIsLive(void) {
+    return sBsFresh > 0;
+}
+
 // Underwater, A IS the fast stroke. The game puts the quick flipper kick on B and a slow wing
 // paddle on A, but "go faster" lives on A in every VR player's thumb memory. In the dive states A
 // becomes B; B itself is untouched, so either button kicks. Only the dive family remaps - at the
-// surface the real A must survive, because that press is the dive itself - and never while
-// paused, where A selects menu rows. Idempotent, so both call sites below may run in one tick.
+// surface the real A must survive, because that press is the dive itself. Idempotent, so both
+// call sites below may run in one tick. Every term of the gate is LIVE: machine ticked this
+// window, water flag current, state in the dive family, real gameplay mode (demos are 6/7,
+// pause is 4). The first shipped version gated only on "not paused" and ate every A press on the
+// save select screen after a water death - the stale-state ghost, round 23's law, biting its
+// own author.
 static void SwimFastRemap(OSContPad* pad) {
-    if (getGameMode() == GAME_MODE_4_PAUSED || !bsbswim_inSet(bs_getState())) {
+    if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL || !player_inWater() ||
+        !bsbswim_inSet(bs_getState())) {
         return;
     }
     if (pad->button & A_BUTTON) {
@@ -697,6 +716,31 @@ static void SwimFastRemap(OSContPad* pad) {
 extern "C" void VrGame_MergePad(OSContPad* pad) {
     if (pad == NULL) {
         return;
+    }
+    // The freshness window ages HERE, once per input tick, before anything consults it below.
+    if (sBsFresh > 0) {
+        sBsFresh--;
+    }
+    // BK_VR_LIVELOG=1: print game mode, player state, and the liveness gates ON CHANGE. This is
+    // how "which mode is the screen I am stuck on" gets answered without a debugger - the
+    // save-select A-eater hid behind exactly that question (stale dive state on a screen that
+    // MEASURES as GAME_MODE_3_NORMAL, which nobody would have assumed).
+    {
+        static int sLog = -1;
+        if (sLog < 0) {
+            sLog = (getenv("BK_VR_LIVELOG") != NULL || getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
+        }
+        if (sLog == 1) {
+            static s32 sPrevMode = -1, sPrevBs = -1;
+            static int sPrevLive = -1, sPrevWater = -1;
+            const s32 m = getGameMode(), b = bs_getState();
+            const int live = BsStateIsLive() ? 1 : 0, water = player_inWater() ? 1 : 0;
+            if (m != sPrevMode || b != sPrevBs || live != sPrevLive || water != sPrevWater) {
+                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d\n", (int)m, (unsigned)b, live, water);
+                fflush(stdout); // survives a killed process - an observability print that can vanish is no seam
+                sPrevMode = m; sPrevBs = b; sPrevLive = live; sPrevWater = water;
+            }
+        }
     }
     // Hand the overlay the pad state FIRST, so a plain gamepad can open and drive it - the first
     // wild user played with an Xbox pad in the headset and pause + right trigger did nothing,
@@ -740,7 +784,9 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     // Y = C-Left ONLY WHILE CROUCHED: the Talon Trot entry (Z + C-Left), otherwise unreachable on
     // motion controllers with the right stick owning the camera. Crouch-gated because a bare
     // C-press kicks Free Look back to the auto camera - the very reason Y was unbound before.
-    if ((vb & VR_BTN_Y) && bs_getState() == BS_7_CROUCH) { btn |= L_CBUTTONS; }
+    // Freshness-gated like the swim remap above: bs_getState() is stale outside live gameplay
+    // (quit while crouched and this would inject C-Left on the save select screen).
+    if ((vb & VR_BTN_Y) && BsStateIsLive() && bs_getState() == BS_7_CROUCH) { btn |= L_CBUTTONS; }
 
     // Per axis the stronger source wins BY MAGNITUDE. The old form compared signed values, so an
     // idle VR stick (exactly 0) - or a whisper of negative drift - "won" against any POSITIVE
@@ -956,6 +1002,8 @@ void VrGame_MergePad(OSContPad* pad) {
     (void)pad;
 }
 void VrGame_PollVrShortcuts(void) {
+}
+void port_vrBsTicked(void) {
 }
 int port_vrFirstPerson_hidePlayer(void) {
     return 0;

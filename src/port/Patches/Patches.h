@@ -90,6 +90,9 @@ void port_modelRenderResetTLUT(Gfx** gfx);
 void port_vrCullAdjust(float* pitchDeg, float* yawDeg, float* frustumX, float* frustumY, float* padWorldUnits);
 // The sky pass registers its perspective Mtx so the eye replay can render it with zero separation.
 void port_vrMarkSkyPerspMtx(void* mtx);
+// The bs state machine stamps every LIVE tick (bs_updateState). bs_getState() is a raw global
+// nothing clears at gameplay exit, so any consumer outside this freshness window reads a corpse.
+void port_vrBsTicked(void);
 // Per-tick mouse-look delta (counts). peek = look without consuming; take = consume once.
 void port_vrMouseDelta_peek(float* dx, float* dy);
 void port_vrMouseDelta_take(float* dx, float* dy);
