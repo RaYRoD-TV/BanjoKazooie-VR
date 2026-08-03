@@ -28,6 +28,10 @@ extern "C" {
 s32 getGameMode(void);
 s32 bs_getState(void); // the player state machine - the crouch gate for the Y = C-Left trot entry
 enum map_e gsworld_getMap(void);
+// The game's own map -> level table (core2/gc/section.c). Cutscene maps carry LEVEL_D_CUTSCENE
+// there, and this accessor consults the romhack scene remap before the table, so it stays right
+// for a hack that reassigns a map.
+enum level_e map_getLevel(enum map_e map);
 s32 gsworld_getEnableDraw(void);
 void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot pos + per-transform head height)
 void player_getRotation(f32 dst[3]);
@@ -120,36 +124,34 @@ void func_80256F44(f32 base[3], f32 rotation[3], f32 src[3], f32 dst[3]);
 // The cutscene maps: scripted camera sweeps (the intro, Grunty's reveals, the endings). Those camera
 // moves are authored for a flat screen and read as motion sickness in stereo, so they play on the flat
 // panel instead - the same call the flying ports make for their level intros.
+//
+// WHICH maps those are is asked of the game rather than kept as a list here, because a list here can
+// only ever describe the stock game. The map -> level table in core2/gc/section.c marks every cutscene
+// map LEVEL_D_CUTSCENE, the game itself decides "this is a cutscene" from exactly that (gsworld.c's
+// per-tick update and exit.c both do), and the port already reads it the same way for the cutscene
+// aspect lock (Patches/CameraPatches.cpp). Going through map_getLevel picks up the romhack scene
+// remap too (section.c consults port_getRomhackSceneRemap first), which is the part that matters: a
+// romhack is free to hand one of the intro maps to a real level, and Torch emits a SCENE_REMAP entry
+// for every map whose level differs from vanilla. With a hardcoded list that level played FLAT on the
+// head-locked panel for its whole duration - "VR does not work with romhacks", exactly. The reverse
+// now works as well: a hack's own new cutscene, on whatever map id, stays flat without anyone here
+// hearing about it.
+//
+// For the stock game the two agree map for map, so this is not a behaviour change: the 23 maps the
+// old switch listed are precisely the 23 the table marks LEVEL_D_CUTSCENE.
 static bool VrGame_IsCutsceneMap(int map) {
-    switch (map) {
-        case MAP_1E_CS_START_NINTENDO:
-        case MAP_1F_CS_START_RAREWARE:
-        case MAP_20_CS_END_NOT_100:
-        case MAP_7B_CS_INTRO_GL_DINGPOT_1:
-        case MAP_7C_CS_INTRO_BANJOS_HOUSE_1:
-        case MAP_7D_CS_SPIRAL_MOUNTAIN_1:
-        case MAP_7E_CS_SPIRAL_MOUNTAIN_2:
-        case MAP_81_CS_INTRO_GL_DINGPOT_2:
-        case MAP_82_CS_ENTERING_GL_MACHINE_ROOM:
-        case MAP_83_CS_GAME_OVER_MACHINE_ROOM:
-        case MAP_84_CS_UNUSED_MACHINE_ROOM:
-        case MAP_85_CS_SPIRAL_MOUNTAIN_3:
-        case MAP_86_CS_SPIRAL_MOUNTAIN_4:
-        case MAP_87_CS_SPIRAL_MOUNTAIN_5:
-        case MAP_88_CS_SPIRAL_MOUNTAIN_6:
-        case MAP_89_CS_INTRO_BANJOS_HOUSE_2:
-        case MAP_8A_CS_INTRO_BANJOS_HOUSE_3:
-        case MAP_94_CS_INTRO_SPIRAL_7:
-        case MAP_95_CS_END_ALL_100:
-        case MAP_96_CS_END_BEACH_1:
-        case MAP_97_CS_END_BEACH_2:
-        case MAP_98_CS_END_SPIRAL_MOUNTAIN_1:
-        case MAP_99_CS_END_SPIRAL_MOUNTAIN_2:
-        case MAP_91_FILE_SELECT:
-            return true;
-        default:
-            return false;
+    // The file select is the exception, and it is not a cutscene - it is the save screen, which the
+    // table files under Spiral Mountain because that is the room it is set in. It is a menu either
+    // way, so it belongs on the panel, and it stays an id because the boot path names it as one
+    // (core1/init.c) no matter what a romhack does with its level.
+    if (map == MAP_91_FILE_SELECT) {
+        return true;
     }
+    // map_getLevel dereferences the table entry, so an id that is not in the table would fault. It
+    // cannot be one here: the game runs the same lookup on every map load (world_reset.c) and on
+    // every world update tick (gsworld.c), and the caller has already required that the world is
+    // drawing - so any map that reaches this line has been through map_getLevel many times over.
+    return map_getLevel((enum map_e)map) == LEVEL_D_CUTSCENE;
 }
 
 // The stereo gate. Per-eye rendering only while the player is actually IN a world being played:
