@@ -4,6 +4,9 @@
 #include "variables.h"
 #include "version.h"
 
+// [port] VR haptics: the tick in the hands when one of Banjo's attacks actually lands.
+extern void port_vrHapticAttackHit(void);
+
 //CollisionParams = u16 packed bitwise as (aaaa bbcc cdde eeff)
 
 typedef struct{
@@ -304,6 +307,14 @@ bool func_8033D410(ActorMarker *arg0, ActorMarker *arg1) {
     }
     for(var_s2 = 0; var_s2 < 11; var_s2++){
         if ((collision_table[collision_index].collisionTypes[var_s2] != 0) && (D_80371DC0[var_s2].unk0(arg0, arg1) == D_80371DC0[var_s2].unk4)) {
+            // [port] VR haptics. This is the only line in the game that knows an attack CONNECTED
+            // rather than merely being live: slots 0..6 and 8..9 only ever match when the player's
+            // own active hitbox is what touched this actor. Slot 7 is an egg in flight and slot 10
+            // is plain contact with no attack behind it, so neither is a blow and neither buzzes.
+            // arg0 is checked because the wonderwing slot also matches a NULL attacker.
+            if (arg0 != NULL && var_s2 != 7 && var_s2 != 10) {
+                port_vrHapticAttackHit();
+            }
             func_80330078(arg1, arg0, collision_table[collision_index].collisionTypes + var_s2);
             func_80330078(arg0, arg1, collision_table[collision_index].collisionTypes + var_s2);
             break;

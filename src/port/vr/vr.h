@@ -218,10 +218,12 @@ void vr_controller_rumble_stop(void);
 // triggers (~0.5 s, haptic tick confirms) or use the RECENTER row in the VR menu.
 void vr_recenter(void);
 
-// First person FLIP CAM: the angle (radians) the eye view - and the sky with it - is rotated by, so
-// the headset somersaults with Banjo's flip jump and beak buster. Fed per game tick from the state
-// machine's own animation clock; 0 is upright, positive pitches forward (nose down). Eased to the
-// headset's frame rate inside, and ignored outside first person.
+// First person VIEW TILT: the angle (radians) the eye view - and the sky with it - is rotated by,
+// so the headset somersaults with the flip jump and the beak buster, is knocked about by a hit,
+// lies back on death, and turns its eyes up during a long fall out of a level. Fed per game tick
+// from the state machine (its own animation clock wherever there is one to read); 0 is upright,
+// positive pitches forward (nose down). Eased to the headset's frame rate inside, and ignored
+// outside first person.
 void vr_set_flip_angle(float radians);
 
 // Tell the eye builder whether VR First Person is actually driving the camera this tick. While the

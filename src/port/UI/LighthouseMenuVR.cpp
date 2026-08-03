@@ -102,8 +102,10 @@ void LighthouseMenu::AddMenuVR() {
         .Options(CheckboxOptions().DefaultValue(true).Tooltip(
             "The full first-person feel in one switch: your head IS Banjo's head. Lean to peek "
             "around corners, walk where you look, and let his own animation carry the view - "
-            "crouching lowers it, attacks lunge and dip it, walking gives it a real stride. Off "
-            "falls back to plain base-relative movement with no physical lean and a fixed eye."));
+            "crouching lowers it, attacks lunge and dip it, walking gives it a real stride, the "
+            "flip jump and beak buster turn it over, a hit knocks it about, and a long fall turns "
+            "your eyes back up to the ledge you left. Off falls back to plain base-relative "
+            "movement with no physical lean and a fixed eye."));
 
     AddWidget(path, "Lean Amount", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRHeadScale")
@@ -122,9 +124,12 @@ void LighthouseMenu::AddMenuVR() {
         .CVar("gVRFpSwimFollow")
         .RaceDisable(false)
         .Options(CheckboxOptions().DefaultValue(true).Tooltip(
-            "In water, the First Person view turns with Banjo while you steer with the left "
-            "stick - so the thumb holding the swim buttons never has to leave them. Only ever "
-            "moves while you are commanding the turn; on land the view base stays put."));
+            "In water, the First Person view IS Banjo's heading while you steer with the left "
+            "stick - so the thumb holding the swim buttons never has to leave them, and the view "
+            "can neither lag him nor lose a degree of a hard turn. Let the stick go and it works "
+            "the other way: he turns to face where you are looking, so your next stroke goes "
+            "there. Only ever moves the view while you are commanding the turn; on land the view "
+            "base stays put. Also covers flight, where it follows the bank."));
 
     AddWidget(path, "Head-Directed Movement", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpHeadMove")
@@ -275,6 +280,15 @@ void LighthouseMenu::AddMenuVR() {
         .RaceDisable(false)
         .Options(CheckboxOptions().DefaultValue(true).Tooltip(
             "Merge the VR controllers into the pad. Turn off for pure gamepad play."));
+
+    AddWidget(path, "Haptics", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRHaptics")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "The controllers buzz for what the world does to you: a tap when you land (harder the "
+            "further you fell), a thump for a landing that costs health, a knock for taking a hit, "
+            "and a short tick whenever one of your attacks actually connects. Works in every view "
+            "mode. Menu and recenter confirmations are separate and always tick."));
 
     AddWidget(path, "Mouse Look", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRMouseLook")

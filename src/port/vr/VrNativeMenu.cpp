@@ -104,6 +104,7 @@ static void RowDefaults(void) {
     CVarSetInteger("gVRCutscenes", 0);
     CVarSetInteger("gVRPassthrough", 0);
     CVarSetInteger("gVRMotionControls", 1);
+    CVarSetInteger("gVRHaptics", 1);
 }
 static void RowResume(void); // needs the state block below
 
@@ -178,6 +179,11 @@ static const VrRow kRowsWorld[] = {
     { "SCREEN SIZE",    ROW_FLOAT, "gVRMenuSize",          0.2f, 1.0f, 16.0f, 3.6f, NULL, NULL, -1, "WIDTH OF THE FLAT SCREEN AND MENUS." },
     { "HIDE HUD",       ROW_INT01, "gVRHideHud",           1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "HIDES THE GAME HUD WHILE PLAYING. MENUS STAY." },
     { "POINTER SPEED",  ROW_FLOAT, "gVRPointerSpeed",      0.1f, 0.3f, 3.0f, 1.0f, NULL, NULL, -1, "HOW FAST THE STICK GLIDES THE PORT MENU POINTER." },
+    // The two opacity rows moved here off SYSTEM. This page is the one named for the screen and
+    // the menus, which is where a player looks for how solid they are - and it freed the row on
+    // SYSTEM that HAPTICS needed, since SYSTEM was already at the ten rows the panel can hold.
+    { "MENU OPACITY",   ROW_FLOAT, "gVRMenuOpacity",       0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
+    { "SETTINGS MENU",  ROW_FLOAT, "gVRImGuiOpacity",      0.05f, 0.3f, 1.0f, 0.95f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
 };
 
 static const VrRow kRowsRender[] = {
@@ -195,16 +201,16 @@ static const VrRow kRowsRender[] = {
 // setting: one pair of switches now inverts every camera the port drives, so a third-person player
 // must not have to open a page named after a mode they are not in to find it. VR DEFAULTS came off
 // this page to make room - it is the same action already sitting on page one, which is where the
-// menu opens.
+// menu opens. The two opacity rows went to WORLD SCREEN for the same reason, and they read better
+// there anyway; what is left is exactly the input-and-device page, which is where HAPTICS belongs.
 static const VrRow kRowsSystem[] = {
     { "MOTION CTRLS",  ROW_INT01,  "gVRMotionControls", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "USE THE VR CONTROLLERS. OFF IS GAMEPAD ONLY." },
+    { "HAPTICS",       ROW_INT01,  "gVRHaptics",        1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE CONTROLLERS BUZZ WHEN YOU LAND OR TAKE A HIT." },
     { "FREE LOOK CAM", ROW_INT01,  "gEnhancements.Camera.FreeLook.Enabled", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "RIGHT STICK AIMS THE CAMERA. NO AUTO RECENTRE." },
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },
     { "INVERT LOOK X", ROW_INT01,  "gEnhancements.Camera.InvertX", 1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT LOOK IN EVERY CAMERA." },
     { "INVERT LOOK Y", ROW_INT01,  "gEnhancements.Camera.InvertY", 1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES UP AND DOWN LOOK IN EVERY CAMERA." },
-    { "MENU OPACITY",  ROW_FLOAT,  "gVRMenuOpacity",    0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
-    { "SETTINGS MENU", ROW_FLOAT,  "gVRImGuiOpacity",   0.05f, 0.3f, 1.0f, 0.95f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
     { "RECENTER",      ROW_ACTION, NULL, 0, 0, 0, 0, RowRecenter, NULL, -1, "BRINGS THE WORLD SQUARE TO WHERE YOU ARE LOOKING." },
     { "RESUME",        ROW_ACTION, NULL, 0, 0, 0, 0, RowResume, NULL, -1, "CLOSES THIS MENU AND RETURNS TO THE PAUSE SCREEN." },
 };

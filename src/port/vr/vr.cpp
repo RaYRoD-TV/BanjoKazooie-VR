@@ -144,6 +144,7 @@ static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front
 static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
 static float sFlipRad            = 0.0f;    // first person flip cam: eye-view pitch, radians (0 = upright)
 static float sFlipTargetRad      = 0.0f;    // ...and where it is heading, set per game tick
+static float sPrevFlipTargetRad  = 0.0f;    // last frame's target, to spot a NEW move taking over
 static float sMenuOpacity        = 0.85f;   // VR menu/HUD panel opacity (1 = opaque, lower = see game through)
 static float sImGuiOpacity       = 0.95f;   // settings (ImGui) menu opacity - its OWN knob, decoupled from the panel
 
@@ -1570,20 +1571,57 @@ extern "C" void vr_set_fp_framing(int on) {
 
 // Per headset frame: follow the target, and snap when close so the view settles dead level between
 // flips instead of creeping.
+//
+// THE LANDING FLIP, and why the fix is not in here. A player reported the backflip itself feeling
+// right but landing adding "an additional flip". The release rule below rounds to the nearest whole
+// revolution, so a target released half a turn in rolls the other half on after touchdown - which
+// is what was seen. But the release rule was doing exactly what it says; what was wrong was the
+// number it was handed. The game side was reading the flip's angle off whatever animation clock the
+// player happened to be running, and bsbflip swaps the somersault animation for a 0.13 s HOLD loop
+// BEFORE it ever starts watching for a landing - so every touchdown happened while the target was
+// sweeping a whole turn eight times a second, and the release caught it wherever that churn had got
+// to. Fixed at the source (VrGame.cpp, VrFlipAngleRad): the angle is now a function of the move's
+// own animation and the move is already home when it ends, which is the sm64 camera's rule. With
+// that in place a normal landing releases with nothing left to travel and this rounds to zero
+// distance; the rule only ever bites now on a genuinely interrupted flip, which is what it is for.
 static void vr_flip_ease(void) {
     const float kTwoPi = 6.28318530718f;
     float target = sFlipTargetRad;
     float rate = 0.22f;
     if (target == 0.0f && sFlipRad != 0.0f) {
         // THE MOVE ENDED. Do not unwind: land on the nearest WHOLE revolution and carry on the way
-        // the body was already turning. A flip that lands with 40 degrees still to run finishes
+        // the body was already turning. A flip cut short with 40 degrees still to run finishes
         // those 40; one barely begun returns to level. Unwinding instead rolled the view backwards
         // down through the floor for a few frames on touchdown - reported as the camera sinking
         // into the ground on landing. Faster too, because the move is over and the view should be
         // level by the time the player has landed, not a beat later.
         target = kTwoPi * floorf(sFlipRad / kTwoPi + 0.5f);
         rate = 0.35f;
+    } else if (target != 0.0f && fabsf(target - sPrevFlipTargetRad) > 3.14159265f) {
+        // A NEW MOVE TOOK OVER while we were still turned over. Cancel Z into A during the
+        // somersault and the next thing this is handed is the beak buster's small nose-down
+        // angle, while the eye is sitting near a full backward revolution. Those two are visually
+        // a few degrees apart and numerically almost a whole turn apart, and a plain lerp travels
+        // the NUMBER: the view rolls the long way FORWARD through an entire revolution nobody
+        // asked for. Same class as the landing bug, different trigger.
+        //
+        // A whole revolution is visually nothing, so take them out of the difference first. The
+        // eye does not move when we do this, only the number does, and afterwards the follow
+        // travels the short way round.
+        //
+        // Keyed on the TARGET JUMPING, not on how far the eye is lagging. A move in progress walks
+        // its target smoothly - the somersault moves it about 8 degrees per tick - so this cannot
+        // fire during one. Keying it on the lag instead would let a bad frame hitch mid-somersault
+        // look like a new move and reverse the turn the player is halfway through.
+        //
+        // Deliberately NOT applied to the release branch above: that one rounds toward whole
+        // revolutions on purpose, so a flip cut short FINISHES the way the body was already
+        // turning instead of reversing back down through the floor. Folding there would undo
+        // exactly the turns it exists to complete.
+        const float turns = floorf((sFlipRad - target) / kTwoPi + 0.5f);
+        sFlipRad -= kTwoPi * turns;
     }
+    sPrevFlipTargetRad = sFlipTargetRad;
     sFlipRad += (target - sFlipRad) * rate;
     if (fabsf(target - sFlipRad) < 0.0008f) {
         // A completed revolution IS upright, so fold it back to zero: same rotation, and the next

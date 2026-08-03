@@ -93,6 +93,9 @@ void port_vrMarkSkyPerspMtx(void* mtx);
 // The bs state machine stamps every LIVE tick (bs_updateState). bs_getState() is a raw global
 // nothing clears at gameplay exit, so any consumer outside this freshness window reads a corpse.
 void port_vrBsTicked(void);
+// One of Banjo's attack hitboxes just MATCHED an actor in the collision resolve - a swipe, barge,
+// peck, roll or buster actually landing on something. Ticks the VR controllers.
+void port_vrHapticAttackHit(void);
 // Per-tick mouse-look delta (counts). peek = look without consuming; take = consume once.
 void port_vrMouseDelta_peek(float* dx, float* dy);
 void port_vrMouseDelta_take(float* dx, float* dy);

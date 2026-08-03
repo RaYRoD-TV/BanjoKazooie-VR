@@ -41,6 +41,10 @@ bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine'
 s32  func_80294524(void); // nonzero while the game HOLDS you at the surface - the state where A jumps out
 int bsbfly_inSet(int state); // nonzero in the FLIGHT state family - flying steers like swimming does
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
+// The fall cam and the landing haptic ask the game for their inputs rather than inventing them:
+// how far THIS fall has already run, and how hard the body is coming down.
+f32 bafalldamage_get_distance_fallen(void);
+f32 baphysics_get_vertical_velocity(void);
 // The player's animation clock, for the flip cam and the animated head. AnimCtrl is opaque here -
 // only the normalized 0..1 position and the asset id matter, and C linkage cares about the name,
 // not the pointer's type.
@@ -512,6 +516,36 @@ static float sPitch = 0.0f;
 static bool sBaseValid = false;
 static int sInactiveFrames = 0;
 
+// Shortest signed distance between two headings, in (-180, 180]. sYaw is a free-running number -
+// spin left for long enough and it is at -2000 - so the usual "+540 then fmod" trick is not safe
+// on any difference that involves it: fmodf keeps the sign of its argument, and one negative
+// result there is a view that jumps most of a turn. Every angle difference in this file goes
+// through here so there is only one place for that to be got right.
+static float VrWrapDeg(float deg) {
+    deg = fmodf(deg + 180.0f, 360.0f);
+    if (deg < 0.0f) {
+        deg += 360.0f;
+    }
+    return deg - 180.0f;
+}
+
+// ---- what just happened to the body -------------------------------------------
+//
+// Taking a hit and dying, in every skin Banjo can be wearing. Each transformation runs its own ow
+// and die state, and a table is the honest way to say that - the game has no "is hurt" predicate
+// to borrow. Three things ask these now (the swim follow, the view tilt and the haptics), so they
+// sit above all of them.
+static bool VrBs_IsHurt(s32 st) {
+    return st == BS_E_OW || st == BS_3E_ANT_OW || st == BS_4D_PUMPKIN_OW || st == BS_63_CROC_OW ||
+           st == BS_6C_WALRUS_OW || st == BS_7B_BTROT_OW || st == BS_7F_DIVE_OW ||
+           st == BS_89_BEE_OW || st == BS_91_FLY_OW;
+}
+
+static bool VrBs_IsDeath(s32 st) {
+    return st == BS_41_DIE || st == BS_43_ANT_DIE || st == BS_4E_PUMPKIN_DIE || st == BS_54_SWIM_DIE ||
+           st == BS_64_CROC_DIE || st == BS_6D_WALRUS_DIE || st == BS_8A_BEE_DIE;
+}
+
 // Face Banjo where the player is LOOKING: body yaw = view yaw (base + head) flipped through the
 // model's 180-degree camera convention. The state machine calls this as an aim-driven state
 // begins (barge, claw, peck, eggs), so an attack launched from inside his head goes where the
@@ -522,7 +556,7 @@ extern "C" void port_vrFpFaceViewYaw(void) {
         return;
     }
     const float viewYaw = sYaw - vr_head_yaw_rad() * 57.29577951308232f;
-    const float bodyYaw = fmodf(viewYaw - 180.0f + 720.0f, 360.0f);
+    const float bodyYaw = VrWrapDeg(viewYaw - 180.0f) + 180.0f;
     yaw_set(bodyYaw);
     yaw_setIdeal(bodyYaw);
 }
@@ -875,17 +909,40 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     // SWIM FOLLOW: underwater the game steers Banjo like a vehicle on the LEFT stick, so a
     // world-stable base means chasing his heading with the right stick - with the same thumb
     // that holds the swim buttons (the first wild feature request). While IN WATER and ACTIVELY
-    // steering, the base follows his yaw change 1:1. That stays inside the comfort law: the view
-    // only ever moves while the player is commanding the turn themselves (the same
-    // only-while-input rule as stick look, and how the sm64 port's first person follows Mario),
-    // dead-stops with the stick, and never follows on land - the world-stable base is untouched
-    // everywhere else.
+    // steering, the view IS his heading. That stays inside the comfort law: the view only ever
+    // moves while the player is commanding the turn themselves, dead-stops with the stick, and
+    // never follows on land - the world-stable base is untouched everywhere else.
+    //
+    // Second edition, and the shape is the sm64 port's rather than ours. That camera does not
+    // transfer a capped DELTA from body to view; it re-derives the view from the body every tick
+    // (yaw = faceAngle + 180) and lets the game's own turn integrator be the whole comfort
+    // budget. Three things follow from that, and all three were problems here:
+    //   - A cap cannot bite, because there is nothing to clip. The follow only runs while the
+    //     stick is held, so every degree a cap ever clipped was a degree the view never got back:
+    //     a hard 180 spin ended with the eye pointing somewhere he was not. That was the whole
+    //     "the view lags behind" complaint, and no cap value fixes it - only not having one does.
+    //   - It self-corrects. A tick that goes wrong for any reason is gone by the next one,
+    //     because the answer is recomputed rather than accumulated.
+    //   - The easing is already done for us. bSwim walks his yaw IDEAL by at most 2.4 to 4.3
+    //     degrees a tick and yaw_update then chases that ideal at a bounded 90 to 250 deg/s, so
+    //     what reaches the view is a rate-limited S-curve the moment the stick moves and a decay
+    //     to a stop the moment it is released. Re-smoothing it here would only add lag.
+    // The one thing sm64 does not have to solve, because its look is applied before the fix-up
+    // and simply overwritten: the player's own look must survive a steering tick. So what is
+    // re-derived is body heading PLUS however far the player has looked off it, measured fresh
+    // each tick. Look and steer at once and both apply.
+    //
+    // And the coupling runs BOTH ways underwater, which is the part that makes it comfortable
+    // rather than merely responsive. Stick held, the view follows the body; stick released, the
+    // BODY follows the view. There is then no moment where the two disagree, so nothing has to
+    // reconverge when steering stops - and swimming where you look costs no view motion at all,
+    // because the body is what moves.
     {
         static float sPrevPlayerYaw = 0.0f;
         static bool sPrevYawValid = false;
         f32 pr[3];
         player_getRotation(pr);
-        float dyaw = fmodf(pr[1] - sPrevPlayerYaw + 540.0f, 360.0f) - 180.0f;
+        const float dyaw = VrWrapDeg(pr[1] - sPrevPlayerYaw);
         // UNDERWATER only. The dive-family state check alone was NOT enough: the surface strokes
         // run THROUGH genuine dive states (bsbdiveb/bsswim_divea eject to SWIM_IDLE only via the
         // near-surface check, so every B stroke at the surface is a few ticks of BS_2C_DIVE_B),
@@ -903,7 +960,17 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         const s32 bsNow = bs_getState();
         const bool swimFollow = player_inWater() && bsbswim_inSet(bsNow) && !func_802A73BC();
         const bool flyFollow = bsbfly_inSet(bsNow) || bsNow == BS_23_FLY_ENTER;
-        if (sPrevYawValid && BsStateIsLive() && (swimFollow || flyFollow) &&
+        // BEING HIT IS NOT STEERING, on either side of the coupling. The ow and die states re-face
+        // Banjo instantly, away from whatever hit him (bsbswim_ow_init and the flight knockback
+        // both do yaw_setIdeal then yaw_applyIdeal in a single tick), and BS_7F_DIVE_OW and
+        // BS_54_SWIM_DIE are both members of bsbswim_inSet, so without this the whole block is
+        // live through a hit. The window below vetoes a BIG re-face, but a hit taken from roughly
+        // behind produces a small one that slips under it and gets handed to the view verbatim -
+        // the eye turns up to 30 degrees on the hit frame with no input at all. Standing the
+        // follow down entirely for the duration is the honest answer: nobody is steering while
+        // they are being knocked about, so there is nothing to follow.
+        const bool struck = VrBs_IsHurt(bsNow) || VrBs_IsDeath(bsNow);
+        if (sPrevYawValid && BsStateIsLive() && (swimFollow || flyFollow) && !struck &&
             CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
@@ -920,36 +987,44 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             // we see it, so any X still standing IS a commanded turn; 0.05 sits a couple of raw
             // counts above that edge so stick jitter on its own can never start the view moving.
             const float gate = flyFollow ? 0.35f : 0.05f;
-            // Window = "is this a steer or a snap": as wide as the game's own yaw integrator can
-            // move him in a single tick, and no wider. Underwater its fastest bound is the dive
-            // entry's 500 deg/s, which over the longest tick the port runs (1/20 s on a slow frame)
-            // is 25 degrees, so 30 admits every real turn. Past that it did not come from the
-            // integrator at all: taking a hit underwater re-faces Banjo instantly away from what
-            // hit him (yaw_applyIdeal in the ow state, up to 180 degrees in one tick), and a load
-            // zone can hand him any angle at all. Those must never drag the view along.
+            // Window = "is this a steer or a snap", and it is a VETO rather than a clamp: the only
+            // job left for it is to spot a jump the turn integrator cannot have produced. Underwater
+            // the fastest that integrator runs is the dive entry's 500 deg/s, which over the longest
+            // tick the port allows (1/20 s on a slow frame) is 25 degrees, so 30 admits every real
+            // turn. Past that it did not come from steering at all: taking a hit underwater re-faces
+            // Banjo instantly away from what hit him (yaw_applyIdeal in the ow state, up to 180
+            // degrees in one tick), and a load zone can hand him any angle. A vetoed tick leaves
+            // the view exactly where it was and lets the snap become part of how far you are
+            // looking off his nose, which is what world-stable MEANS through a teleport: your head
+            // did not move, so your view does not. Steering after it still tracks him one to one,
+            // from wherever the two now stand. A clamp would instead have dragged the eye part way
+            // into a turn Banjo never made.
             const float window = flyFollow ? 45.0f : 30.0f;
-            // Cap = how fast the view may follow, sized to NEVER bite on a real turn. A cap that
-            // bites does not lag, it LOSES the yaw: the follow only runs while the stick is held,
-            // so every degree clipped while Banjo turns is a degree the view never gets back, and
-            // the turn ends with the eye pointing somewhere he is not. That was the whole
-            // complaint. Underwater he yaws 2.4 to 3.1 degrees a tick normally and 4.3 with R held
-            // (129 deg/s), so the old 2.5 threw away up to 1.8 degrees EVERY tick of a hard turn -
-            // a 180 degree spin left the view 75 degrees off his nose with no way back but the
-            // right stick. The stick can ask for at most 4.3 a tick, and the yaw system will not
-            // move him faster than 250 deg/s, which is 12.5 degrees across that same slow tick, so
-            // 12.5 clears every real turn and the view tracks his body one to one. It still refuses
-            // a teleport: nothing bigger than 12.5 degrees can ever transfer in one tick.
-            const float cap = flyFollow ? 8.0f : 12.5f;
-            if (steer > gate && dyaw > -window && dyaw < window) {
-                if (dyaw > cap) {
-                    dyaw = cap;
+            if (steer > gate) {
+                if (dyaw > -window && dyaw < window) {
+                    // How far the player has looked off his nose, measured against where he was
+                    // pointing when this was last answered. Everything the look block added since
+                    // then is in here, so a stick-and-steer at the same time keeps both.
+                    const float look = VrWrapDeg(sYaw - (sPrevPlayerYaw + 180.0f));
+                    // The view IS his heading plus that look. Not a step toward it - the answer
+                    // itself, recomputed, so there is nothing to lose and nothing to catch up on.
+                    sYaw = pr[1] + 180.0f + look;
                 }
-                if (dyaw < -cap) {
-                    dyaw = -cap;
-                }
-                sYaw += dyaw;
+            } else if (swimFollow) {
+                // Stick centred and genuinely submerged: the body takes the view's heading instead,
+                // so drifting and looking around leaves the two agreeing and the next stroke goes
+                // where you are looking. Costs the player no view motion whatsoever - it is the
+                // body that turns - and it is the same call the aim states already make, so the
+                // yaw convention lives in exactly one place. Not for FLIGHT: the flight model owns
+                // its own yaw hard (its own bounded velocity and its own targets) and writing over
+                // that would be two hands on the stick. Not while struck either, which the gate on
+                // the whole block above now covers for both directions of the coupling.
+                port_vrFpFaceViewYaw();
             }
         }
+        // Re-read AFTER the body may have been turned above, or the next tick would measure our own
+        // write as a turn Banjo made and hand the view a step it never earned.
+        player_getRotation(pr);
         sPrevPlayerYaw = pr[1];
         sPrevYawValid = true;
     }
@@ -1253,58 +1328,396 @@ extern "C" void VrGame_MergePad(OSContPad* pad) {
     SwimButtonSwap(pad);
 }
 
-// Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU
-// content, so it switches to the SCREEN knobs - the HUD size/dist sliders stop moving the menus.
-// FLIP CAM: how far the view is turned over RIGHT NOW, straight off the move's own animation clock
-// (radians, positive = nose down). Not a timer of ours and not a canned spin - the view turns
-// exactly as fast as Banjo turns, so it stays glued to the move at any frame rate, and a move cut
-// short (landing early, taking a hit) simply stops driving it and the eye eases level.
+// ---- haptics ------------------------------------------------------------------
 //
-//   FLIP JUMP (Z then A) - a full BACKWARD somersault, so a full turn backwards over the anim's
-//   active range. It ends on 360, which is upright: the view arrives home by finishing the flip,
-//   not by being snapped back.
-//   BEAK BUSTER (A then Z) - a forward tuck into a beak-down plunge. The tuck is the first third of
-//   the animation; past it the angle simply HOLDS nose-down, which is where Banjo's head actually
-//   is for the whole fall, and the state ending on impact releases it.
+// What the world does to you, felt in the hands. Deliberately a SHORT list: a controller that
+// buzzes at everything stops meaning anything, so this fires only where the body takes or delivers
+// a real impact, and each event gets its own weight and length so they are told apart by feel
+// rather than by being told apart at all.
+//
+//   land            a tap, scaled by how hard you came down - a hop is barely there
+//   hard landing    fall damage. The heaviest thing here, and it should be
+//   hurt            a solid knock, medium length
+//   death           long and heavy, once
+//   attack lands    a short bright tick, so a connected swipe reads differently from a whiff
+//
+// Not gated on First Person or on the immersive cam: the hands are the hands in every view mode,
+// including the tabletop diorama and the flat theater screen. Gated only on VR being live and on
+// the player's own HAPTICS switch (gVRHaptics, on by default).
+static void VrHaptic(float strength, float seconds) {
+    if (!vr_is_active() || CVarGetInteger("gVRHaptics", 1) == 0) {
+        return;
+    }
+    vr_controller_rumble(strength, seconds);
+}
+
+// An attack of Banjo's just landed on something. Called from the collision resolve, which is the
+// only place that knows a hitbox MATCHED rather than merely being live - see hitboxdata.c.
+//
+// Rate limited, because the resolve runs on OVERLAP and not on impact: one buster can match half a
+// dozen actors in a tick, and rolling into something that does not die keeps matching every tick
+// after. A blow is one tick in the hand however many things it caught, so a few ticks of quiet
+// after each one is what makes it read as a hit rather than as a texture.
+extern "C" void port_vrHapticAttackHit(void) {
+    // Same gate every other bs consumer in this file carries, and it is not decoration here: the
+    // ATTRACT DEMO replays a recorded pad into real gameplay behind the title screen, hitboxes and
+    // all, in a mode that is by definition not GAME_MODE_3_NORMAL. Without this the controllers
+    // tick in your hands while demo-Banjo rolls into a Gruntling and nobody is playing.
+    if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {
+        return;
+    }
+    static int sLastTick = -100;
+    if (sVrTick - sLastTick < 6) {
+        return;
+    }
+    sLastTick = sVrTick;
+    VrHaptic(0.40f, 0.045f);
+}
+
+// Everything else is a state edge or a physics edge, so it is read here rather than wired into the
+// game: bs_getState() changes exactly once per event, and the player machine's own liveness stamp
+// keeps a stale state on a menu screen from firing anything.
+static void VrGame_PollHaptics(void) {
+    static int sPrevKind = -1;
+    static bool sPrevStable = true;
+    static float sAirVy = 0.0f;
+
+    if (!vr_is_active() || !BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {
+        sPrevKind = -1;
+        sPrevStable = true;
+        sAirVy = 0.0f;
+        return;
+    }
+
+    const s32 st = bs_getState();
+    const bool hurts = VrBs_IsDeath(st) || st == BS_72_SPLAT || VrBs_IsHurt(st);
+    // ONE EVENT, ONE BUZZ, however many states the game spends it in. Keyed on which KIND of thing
+    // happened rather than on the state id, because a death over water runs BS_41_DIE and then
+    // hands off to BS_54_SWIM_DIE partway through and both are deaths - on the raw id that was two
+    // heavy buzzes for one death, a couple of seconds apart, against a spec line that says once.
+    const int kind = VrBs_IsDeath(st)      ? 1
+                     : (st == BS_72_SPLAT) ? 2
+                     : VrBs_IsHurt(st)     ? 3
+                                           : 0;
+    if (sPrevKind >= 0 && kind != sPrevKind) {
+        if (kind == 1) {
+            VrHaptic(0.85f, 0.35f);
+        } else if (kind == 2) {
+            VrHaptic(0.95f, 0.20f); // fall damage: the one that is supposed to hurt
+        } else if (kind == 3) {
+            VrHaptic(0.60f, 0.11f);
+        }
+    }
+    sPrevKind = kind;
+
+    // LANDING. The last vertical speed while airborne is what the impact was worth - by the time
+    // the feet are down the physics has already zeroed it, so it has to be caught on the way in.
+    // A landing that HURT reaches the ground and enters BS_72_SPLAT on the same tick, and a later
+    // call replaces an earlier one outright - so the light tap has to stand aside there, or the
+    // heaviest event in the game would be overwritten by the smallest one a few lines on.
+    //
+    // WATER IS NOT AIR. player_isStable() is false the whole time you are swimming, so treating it
+    // as "airborne" armed the tap with the swim descent's own speed (bSwim.c sinks at up to 400)
+    // and then fired it the moment you climbed out - a phantom landing on every water exit. In
+    // water there is nothing to land from, so it counts as already down: no speed is gathered and
+    // no edge is left behind. Jumping out is unaffected, because the arc after you leave the water
+    // is genuinely airborne and gets measured normally.
+    const bool stable = player_isStable() || player_inWater();
+    if (!stable) {
+        sAirVy = baphysics_get_vertical_velocity();
+    } else if (!sPrevStable && !hurts) {
+        // Nothing for stepping off a kerb; a full jump is a firm tap and terminal velocity is the
+        // most a plain landing ever gets. The hurting landings are BS_72_SPLAT above and they run
+        // on their own weight, so this stays deliberately light.
+        const float speed = (sAirVy < 0.0f) ? -sAirVy : 0.0f;
+        if (speed > 300.0f) {
+            float k = (speed - 300.0f) / 1700.0f;
+            if (k > 1.0f) {
+                k = 1.0f;
+            }
+            VrHaptic(0.15f + 0.35f * k, 0.05f);
+        }
+        sAirVy = 0.0f;
+    }
+    sPrevStable = stable;
+}
+
+// ---- the first person view tilt ---------------------------------------------
+//
+// ONE angle covers the flip cam, the beak buster, taking a hit, dying, and the long fall out of a
+// level (radians, positive = nose down). It is recomputed FROM SCRATCH every tick out of what the
+// body is doing right now: an animation's own progress wherever there is one to read, and a
+// clamped elapsed-time envelope only where the animation loops and therefore cannot say. Nothing
+// here integrates a velocity, so nothing can drift or overshoot - and every envelope is written to
+// be back at zero (or at a whole revolution, which IS upright) by the time the state that owns it
+// is allowed to end, so a move that finishes needs no "completing" afterwards.
+//
+// Peak angles come from the sm64 port's own table, converted out of its s16 units (0x8000 = 180
+// degrees): hurt 0x2000, death 0x2800, fall 0x3000. Those are numbers a lot of people have already
+// spent a lot of hours behind, which is worth more here than anything freshly guessed.
+static const float kTiltHurtDeg  = -45.0f;  // a hit throws the head BACK, so the view pitches up
+static const float kTiltSplatDeg = 33.75f;  // fall damage lands beak first, so this one goes down
+static const float kTiltDeathDeg = -56.25f; // flat on your back looking at the sky, and it holds
+static const float kTiltFallDeg  = -67.5f;  // the long fall: your eyes go to what you just left
+
 static float VrFlipAngleRad(void) {
+    const float kDeg2Rad = 0.01745329252f;
+    const float kPi = 3.14159265359f;
+
+    // Elapsed-time envelopes and the fall ramp. Both are reset whenever the tilt stands down, so a
+    // screen with no player behind it can never resume one mid-swing.
+    static float sEnvT = 0.0f;     // seconds into the current hurt / splat / death envelope
+    static float sFallRamp = 0.0f; // 0..1, how far the long-fall look-up has come in
+    static int sPrevFam = 0;       // which envelope shape was running last tick (see below)
+
     // IMMERSIVE CAM is the enabler. "Your head is Banjo's head" and "your view turns when his
     // body turns" are one idea, so they are one switch - a separate FLIP CAM row was a second
     // knob for the same promise, and the one people actually found was this one.
-    if (vr_get_view_mode() != VR_VIEW_FIRST_PERSON || CVarGetInteger("gVRFpImmersive", 1) == 0) {
+    if (vr_get_view_mode() != VR_VIEW_FIRST_PERSON || CVarGetInteger("gVRFpImmersive", 1) == 0 ||
+        !BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {
+        sEnvT = 0.0f;
+        sFallRamp = 0.0f;
+        sPrevFam = 0;
         return 0.0f;
     }
-    if (!BsStateIsLive() || getGameMode() != GAME_MODE_3_NORMAL) {
-        return 0.0f;
-    }
+
     const s32 st = bs_getState();
-    if (st != BS_12_BFLIP && st != BS_F_BBUSTER) {
-        return 0.0f;
+    // The envelope restarts when the EVENT changes, not when the state id does. Those are not the
+    // same thing: dying over water runs BS_41_DIE and then hands off to BS_54_SWIM_DIE partway
+    // through (die.c, and bsbswim_die_init even tests for that exact predecessor), and both are
+    // deaths. Keying the reset on the raw id restarted the death envelope at the hand-off, which
+    // collapsed a tilt the comment below promises will HOLD and swung the view about 45 degrees
+    // while the player was dead and holding no stick. So the reset asks which of these shapes is
+    // running, and one death is one envelope however many states the game spends it in.
+    const int fam = VrBs_IsDeath(st)                            ? 1
+                    : (st == BS_72_SPLAT)                       ? 2
+                    : VrBs_IsHurt(st)                           ? 3
+                    : (st == BS_12_BFLIP || st == BS_F_BBUSTER) ? 4
+                                                                : 0;
+    if (fam != sPrevFam) {
+        sEnvT = 0.0f; // a new event starts its envelope at the beginning, never part way through
+        sPrevFam = fam;
     }
-    void* anim = baanim_getAnimCtrlPtr();
-    if (anim == NULL) {
-        return 0.0f;
+    // CLAMPED delta. A hitch, a loading pause or a spell in a menu must not let an envelope jump
+    // most of its length in one tick - that is the one way a time-driven shape can still surprise.
+    float dt = time_getDelta();
+    if (dt < 0.0f) {
+        dt = 0.0f;
     }
-    const f32 t = anctrl_getAnimTimer(anim);
-    const float kDeg2Rad = 0.01745329252f;
-    if (st == BS_12_BFLIP) {
-        // bsbflip_init runs ASSET_4B_ANIM_BSBFLIP_ENTER over the sub-range 0 .. 0.7866.
-        float p = t / 0.7866f;
-        if (p < 0.0f) { p = 0.0f; }
-        if (p > 1.0f) { p = 1.0f; }
-        return -360.0f * p * kDeg2Rad; // backward
+    if (dt > 0.1f) {
+        dt = 0.1f;
     }
-    // bsbbuster_init runs ASSET_1D_ANIM_BSBBUSTER over the sub-range 0 .. 0.35 (the tuck).
-    float p = t / 0.35f;
-    if (p < 0.0f) { p = 0.0f; }
-    if (p > 1.0f) { p = 1.0f; } // past the tuck: hold nose-down through the plunge
-    return 90.0f * p * kDeg2Rad; // forward
+    sEnvT += dt;
+
+    // --- what the body itself is doing -------------------------------------------------------
+    // Two different exemptions, and they are NOT the same set, which is worth saying plainly
+    // because treating them as one put the world upside down.
+    //
+    //   ownsAngle - a deliberate move is driving the view, so the long-fall look-up must not blend
+    //               itself in on top. True for the somersault AND the beak buster.
+    //   goesOverTop - this move is SUPPOSED to pass vertical, so the never-past-vertical clamp has
+    //               to stand aside or it would stop the move completing. True for the somersault
+    //               ONLY. The beak buster tops out at 90 degrees nose-down and never goes over, so
+    //               exempting it bought nothing and cost everything: its angle PARKS at exactly 90
+    //               for the whole plunge (bsbbuster_init runs the tuck over 0 .. 0.35 and the clock
+    //               stops there), so a player already looking down 75 - which is what you do when
+    //               you are aiming a beak buster at something - was held at 165 degrees, inverted,
+    //               for as long as the plunge lasted. Clamped it is still 85 degrees nose-down and
+    //               still unmistakably a beak buster.
+    //
+    // Everything else here is an ATTITUDE - which way the body is lying or being thrown - and gets
+    // both: blended into by the fall, and bounded against wherever the player is already looking.
+    float deg = 0.0f;
+    bool ownsAngle = false;
+    bool goesOverTop = false;
+    if (VrBs_IsDeath(st)) {
+        // Smoothstep in and HOLD. You are on your back and you are not getting up, so the view
+        // has no business easing itself level while the death plays out.
+        float p = sEnvT / 0.55f;
+        if (p > 1.0f) {
+            p = 1.0f;
+        }
+        deg = kTiltDeathDeg * (p * p * (3.0f - 2.0f * p));
+    } else if (st == BS_72_SPLAT) {
+        // Fall damage: bssplat_init plays its impact animation for 1.1 s, so the half-sine is
+        // sized to it - the view is driven into the dirt and pushed back up as he gets up.
+        float p = sEnvT / 1.1f;
+        if (p > 1.0f) {
+            p = 1.0f;
+        }
+        deg = kTiltSplatDeg * sinf(kPi * p);
+    } else if (VrBs_IsHurt(st)) {
+        // A SHORT flinch, and short on purpose. NO ow state ends on its animation - every one of
+        // them exits on the physics, when player_isStable() goes true at the end of the knockback
+        // arc (ow.c, and the same for the ant, bee, croc and the rest, which all run different
+        // animation lengths anyway). So sizing this to the animation, as a first pass did at
+        // 0.91 s, made it "level again when he lands" only on perfectly flat ground: knocked back
+        // onto a step 100 units up, the arc ends at 0.31 s and the tilt was still at 38 degrees
+        // when the state let go, and the release then unwound all of it in about six frames. That
+        // snap is the exact thing this feature exists to avoid.
+        //
+        // 0.30 s is under the shortest arc worth worrying about, so the view is already home
+        // whenever and wherever he lands, and nothing is left for the release to unwind. It also
+        // reads better: being hit is a jolt, not a swoon.
+        float p = sEnvT / 0.30f;
+        if (p > 1.0f) {
+            p = 1.0f;
+        }
+        deg = kTiltHurtDeg * sinf(kPi * p);
+    } else if (st == BS_12_BFLIP || st == BS_F_BBUSTER) {
+        ownsAngle = true;
+        goesOverTop = (st == BS_12_BFLIP);
+        void* anim = baanim_getAnimCtrlPtr();
+        if (anim != NULL) {
+            const f32 t = anctrl_getAnimTimer(anim);
+            const enum asset_e asset = anctrl_getIndex(anim);
+            if (st == BS_12_BFLIP) {
+                // FLIP JUMP (Z then A) - a full BACKWARD somersault over the ENTER animation's
+                // active range, which bsbflip_init sets to 0 .. 0.7866.
+                //
+                // THE LANDING BUG, and why it was landing and not the flip: the state does not
+                // end when the somersault ends. bsbflip_update swaps the animation to
+                // ASSET_4C_ANIM_BSBFLIP_HOLD (or, if A is released, to the EXIT animation) the
+                // moment the ENTER animation stops, and ONLY THEN does it start watching for
+                // player_isStable - so every landing happens while a different animation is
+                // playing. The old code asked bs_getState() alone and then divided whatever
+                // animation timer it found by the ENTER range, so for the last half second of
+                // every flip it was reading the HOLD loop's clock: 0.13 s per lap, which came out
+                // as the target sweeping a full turn roughly eight times a second. Landing then
+                // released a target caught anywhere in that churn, and the release rounds to the
+                // NEAREST whole revolution - so up to another half turn got rolled on after
+                // touchdown. That is the extra flip.
+                //
+                // The fix is the sm64 camera's rule: the angle is a function of the move's own
+                // animation progress, and when the move is over the angle is ALREADY home. Once
+                // the somersault animation is no longer the one playing, the turn is complete -
+                // and a completed revolution IS upright, so this returns level and the release
+                // folds the finished turn away with no travel at all. (Ruled out on the way: the
+                // animated head offset only moves the eye's POSITION, it cannot rotate the view;
+                // and the ease running on past the state change is only a problem when it has
+                // somewhere left to go, which after this it does not.)
+                //
+                // AND THE ASSET ID ALONE DOES NOT SAY IT. On touchdown the state REPLAYS the
+                // somersault asset as its landing animation: _bsbflip_802A2DC0 (bFlip.c) sets
+                // index 0x4B again with start 0.8566, and the state stays BS_12_BFLIP for the
+                // ~0.32 s that runs. An asset-only test passes that, and 0.8566/0.7866 clamps to
+                // a flat -360 for its whole length - a fresh full revolution, at landing, which
+                // is the exact bug. What separates them is the CLOCK: the somersault is bounded
+                // by its own sub-range end (0.7866), and the landing replay begins past it.
+                if (asset != ASSET_4B_ANIM_BSBFLIP_ENTER || t > 0.7866f) {
+                    deg = 0.0f;
+                } else {
+                    float p = t / 0.7866f;
+                    if (p < 0.0f) {
+                        p = 0.0f;
+                    }
+                    if (p > 1.0f) {
+                        p = 1.0f;
+                    }
+                    deg = -360.0f * p; // backward
+                }
+            } else if (asset == ASSET_1D_ANIM_BSBBUSTER) {
+                // BEAK BUSTER (A then Z) - a forward tuck into a beak-down plunge, then back up.
+                // bsbbuster_init runs the tuck over sub-range 0 .. 0.35 and the clock PARKS there
+                // for the whole plunge, which is why holding nose-down past the tuck is right.
+                // After the slam, bsbbuster_update extends the same animation to 0.7299 to stand
+                // him back up - so the head comes up on exactly the animation that lifts it, and
+                // the angle is 0 by the time the state can hand off to BS_20_LANDING.
+                const float kTuckEnd = 0.35f;
+                const float kRecoverEnd = 0.7299f;
+                if (t <= kTuckEnd) {
+                    float p = t / kTuckEnd;
+                    if (p < 0.0f) {
+                        p = 0.0f;
+                    }
+                    deg = 90.0f * p; // forward
+                } else {
+                    float p = (t - kTuckEnd) / (kRecoverEnd - kTuckEnd);
+                    if (p > 1.0f) {
+                        p = 1.0f;
+                    }
+                    deg = 90.0f * (1.0f - p);
+                }
+            }
+        }
+    }
+
+    // --- THE LONG FALL, laid over whatever carried you off the edge --------------------------
+    // A really long fall turns the eyes up toward what you just left.
+    // Time-driven and not animation-driven on purpose: bsjump_tumble_init plays its flail on a
+    // LOOP, so animation progress there says nothing about how long you have been falling.
+    // Latched by its own value, so it eases in over 1.5 s and back out over 0.75 s and cannot
+    // flicker as the fall passes between BS_2F_FALL and the tumble.
+    //
+    // The distance is read off the game's own fall-damage ruler rather than picked: that table
+    // (falldamage.c) costs you one health past 1000 units and one more per thousand after it, so
+    // 4000 is the drop that takes four - half of a full honeycomb bar, and unmistakably a plunge
+    // rather than a step off a ledge. The reference gates this on sm64's death plane, which Banjo
+    // has no equivalent of; "a fall this game considers serious" is the closest true statement.
+    // Under it nothing happens at all, and the 1.5 s ramp on top means a short damaging drop is
+    // over before the look-up has come far in.
+    //
+    // EVERY skin falls, not just the bear. The hurt and death tables above enumerate all nine ow
+    // states and all seven die states because each transformation runs its own; falling is exactly
+    // the same, and listing only Banjo's meant a 4000-unit drop as the pumpkin in Mad Monster or
+    // the croc in Bubblegloop did nothing at all while the identical drop as Banjo swung the full
+    // 67.5. None of the transformations ever enter BS_3D_FALL_TUMBLING, so there was no chance of
+    // it happening by accident.
+    {
+        const bool grounded = player_isStable() || player_inWater();
+        const bool inFallState = st == BS_3D_FALL_TUMBLING || st == BS_2F_FALL ||
+                                 st == BS_38_ANT_FALL || st == BS_4B_PUMPKIN_FALL ||
+                                 st == BS_61_CROC_FALL || st == BS_6A_WALRUS_FALL ||
+                                 st == BS_71_BTROT_FALL || st == BS_88_BEE_FALL;
+        const bool falling = !grounded && inFallState &&
+                             bafalldamage_get_distance_fallen() > 4000.0f;
+        sFallRamp += (falling ? 1.0f : -2.0f) * dt / 1.5f;
+        if (sFallRamp < 0.0f) {
+            sFallRamp = 0.0f;
+        }
+        if (sFallRamp > 1.0f) {
+            sFallRamp = 1.0f;
+        }
+    }
+    if (sFallRamp > 0.001f && !ownsAngle) {
+        // BLENDED, not added: the fall OVERRIDES whatever action carried you over the edge, and
+        // hands back to it the same way. Smoothstep on the ramp so neither end of it is a corner.
+        const float t = sFallRamp * sFallRamp * (3.0f - 2.0f * sFallRamp);
+        deg = deg * (1.0f - t) + kTiltFallDeg * t;
+    }
+
+    // NEVER PAST VERTICAL. This is a pitch laid on top of the one the player is already holding,
+    // and nothing downstream adds the two up: the tilt is an eye-space rotation applied after the
+    // game camera (mat_flip_apply), so it composes freely with it. sPitch is the stick-and-mouse
+    // pitch in the game's convention, where POSITIVE is up (a camera pitched down reads as ~340,
+    // which is what port_vrCullAdjust normalizes), and this angle's positive is nose DOWN - so the
+    // two oppose and the composed look-up is sPitch - deg. Left alone, a player looking up at 75
+    // while a fall asks for 67.5 more is taken to 142 and the world rolls over on him. That is the
+    // single worst thing a VR camera can do to someone and it costs one clamp to make impossible.
+    // Bounded to 85, just short of straight up, where the horizon still says which way is up.
+    // Spins are exempt, as above - a somersault that cannot pass vertical is not a somersault.
+    // The player's own NECK is not in this sum and cannot be: tilting your head back is a real
+    // motion your inner ear agrees with, and clamping it is what actually makes people ill.
+    if (!goesOverTop) {
+        const float kMax = 85.0f;
+        if (deg < sPitch - kMax) {
+            deg = sPitch - kMax;
+        }
+        if (deg > sPitch + kMax) {
+            deg = sPitch + kMax;
+        }
+    }
+    return deg * kDeg2Rad;
 }
 
+// Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU
+// content, so it switches to the SCREEN knobs - the HUD size/dist sliders stop moving the menus.
 extern "C" void VrGame_SyncFrame(void) {
     sVrTick++;              // freshness clock for the sky-pass Mtx registry
     VrGame_SampleMouse();   // one mouse sample per tick; look paths consume it once
+    VrGame_PollHaptics();   // landing, damage and death, felt in the hands
     vr_set_hud_menu_mode(getGameMode() == GAME_MODE_4_PAUSED || port_vrNativeMenu_isOpen());
-    vr_set_flip_angle(VrFlipAngleRad()); // flip cam target; vr.cpp eases it at the headset's rate
+    vr_set_flip_angle(VrFlipAngleRad()); // view tilt target; vr.cpp eases it at the headset's rate
     // Whether First Person is really driving the camera. The same drive-tick freshness that decides
     // if the bear stays hidden decides whether our framing offsets apply: when the game takes the
     // camera for a conversation or a switch reveal, the offsets fade and the authored shot stands.
@@ -1526,6 +1939,8 @@ int port_vrImGuiMenuVisible(void) {
     return 0;
 }
 void port_vrFpFaceViewYaw(void) {
+}
+void port_vrHapticAttackHit(void) {
 }
 }
 
