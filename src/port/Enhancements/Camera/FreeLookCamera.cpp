@@ -5,6 +5,7 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 
 #include "port/UI/cvar_prefixes.h"
+#include "port/Controller/ModernCamera.h" // port_cameraInvertXSign / YSign - the port-wide look invert
 #include "port/Enhancements/Camera/FreeLookCamera.h"
 
 extern "C" {
@@ -226,8 +227,14 @@ extern "C" void port_freeLookCamera_update(void) {
     const float dioramaEase = port_vrDioramaLookScale();
     yawSens *= dioramaEase;
     pitchSens *= dioramaEase;
-    bool invertX = CVarGetInteger(CVAR_FREELOOK_INVERT_X, 0) != 0;
-    bool invertY = CVarGetInteger(CVAR_FREELOOK_INVERT_Y, 0) != 0;
+    // The port-wide camera invert applies to the orbit too. "Invert Camera X / Y" used to reach the
+    // C-button swivel, the chase yaw and the game's own first-person look but not this, so a player
+    // who inverted the camera and then spent the whole game in free look saw nothing change - and
+    // free look is on by default. Its own pair stays as an extra flip for the orbit alone.
+    // EITHER flag inverts: two switches that both say "invert" must not cancel each other out,
+    // because a player who ticks both means it twice, not not at all.
+    bool invertX = CVarGetInteger(CVAR_FREELOOK_INVERT_X, 0) != 0 || port_cameraInvertXSign() < 0.0f;
+    bool invertY = CVarGetInteger(CVAR_FREELOOK_INVERT_Y, 0) != 0 || port_cameraInvertYSign() < 0.0f;
 
     D_8037DB70 = mlNormalizeAngle(D_8037DB70 + (invertX ? -stick[0] : stick[0]) * kYawSpeed * yawSens * dt);
     sPitch = clampf(sPitch + (invertY ? stick[1] : -stick[1]) * kPitchSpeed * pitchSens * dt, kMinPitch, kMaxPitch);

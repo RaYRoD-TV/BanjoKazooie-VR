@@ -173,12 +173,16 @@ void LighthouseMenu::AddMenuEnhancements() {
     AddWidget(path, "Invert Camera X", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Camera.InvertX"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Inverts horizontal camera."));
+        .Options(CheckboxOptions().Tooltip(
+            "Reverses left/right look everywhere: the C-button swivel, the chase camera, "
+            "first-person looking, the Free Look orbit, and VR. Stick and mouse alike."));
 
     AddWidget(path, "Invert Camera Y", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Camera.InvertY"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Inverts vertical camera in first-person."));
+        .Options(CheckboxOptions().Tooltip(
+            "Reverses up/down look everywhere: first-person looking, the Free Look orbit, "
+            "and VR. Stick and mouse alike."));
 
     path.column = SECTION_COLUMN_2;
 
@@ -208,12 +212,16 @@ void LighthouseMenu::AddMenuEnhancements() {
     AddWidget(path, "Free Look Invert X", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Camera.FreeLook.InvertX"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Inverts the horizontal free look direction."));
+        .Options(CheckboxOptions().Tooltip(
+            "Inverts the horizontal free look direction on top of Invert Camera X. "
+            "Leave this off if you already invert the camera everywhere."));
 
     AddWidget(path, "Free Look Invert Y", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_ENHANCEMENT("Camera.FreeLook.InvertY"))
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Inverts the vertical free look direction."));
+        .Options(CheckboxOptions().Tooltip(
+            "Inverts the vertical free look direction on top of Invert Camera Y. "
+            "Leave this off if you already invert the camera everywhere."));
 
     AddWidget(path, "Free Look Smoothing", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar(CVAR_ENHANCEMENT("Camera.FreeLook.SmoothRate"))

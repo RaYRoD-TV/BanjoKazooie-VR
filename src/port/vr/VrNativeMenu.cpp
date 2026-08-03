@@ -79,7 +79,17 @@ static void RowDefaults(void) {
     CVarSetInteger("gVRFpSwimFollow", 1);
     CVarSetFloat("gVRHeadScale", 0.1f);
     CVarSetFloat("gVRFpLookSpeed", 160.0f);
-    CVarSetInteger("gVRFpInvertX", 0);
+    // The invert rows on the SYSTEM page drive the port's own camera invert, so the reset that
+    // covers that page has to clear those keys - a row a page's own defaults button cannot undo
+    // reads as a defaults button that does not work.
+    CVarSetInteger("gEnhancements.Camera.InvertX", 0);
+    CVarSetInteger("gEnhancements.Camera.InvertY", 0);
+    // Free Look carries its OWN invert pair, and the orbit now honours either one. Those two live
+    // on the desktop page with no row in here, so a player who set them months ago on a monitor
+    // would tick INVERT LOOK Y in the headset, see nothing change, untick it, still see nothing,
+    // and have no way to reach the switch actually holding it down. Clear them with the rest.
+    CVarSetInteger("gEnhancements.Camera.FreeLook.InvertX", 0);
+    CVarSetInteger("gEnhancements.Camera.FreeLook.InvertY", 0);
     CVarSetInteger("gVRAntiClip", 1);
     CVarSetInteger("gVRMouseLook", 1);
     CVarSetFloat("gVRMouseSens", 0.10f);
@@ -122,7 +132,7 @@ static const VrRow kRowsView[] = {
     { "CAM DIST",    ROW_FLOAT, "gVRThirdPersonDist", 0.05f, 0.3f, 3.0f, 0.7f, NULL, NULL, -1, "HOW FAR THE CAMERA SITS FROM BANJO. 1 IS STOCK." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",        0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",         0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
-    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
+    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING AND THE INVERT LOOK KEYS." },
 };
 
 static const VrRow kRowsViewFp[] = {
@@ -134,7 +144,7 @@ static const VrRow kRowsViewFp[] = {
     { "EYE FORWARD", ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",             0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",              0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
-    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
+    { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING AND THE INVERT LOOK KEYS." },
 };
 
 static const VrRow kRowsViewDiorama[] = {
@@ -145,7 +155,7 @@ static const VrRow kRowsViewDiorama[] = {
     { "DIORAMA HEIGHT", ROW_FLOAT, "gVRDioramaHeight",     0.02f, -1.5f, 1.5f, -0.4f, NULL, NULL, -1, "RAISES OR LOWERS THE TABLETOP." },
     { "HUD SIZE",       ROW_FLOAT, "gVRHudScale",          0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",       ROW_FLOAT, "gVRHudDist",           0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
-    { "VR DEFAULTS",    ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
+    { "VR DEFAULTS",    ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING AND THE INVERT LOOK KEYS." },
 };
 
 static const VrRow kRowsFp[] = {
@@ -154,7 +164,7 @@ static const VrRow kRowsFp[] = {
     { "LEAN",          ROW_FLOAT, "gVRHeadScale",            0.05f, 0.0f, 1.5f, 0.1f, NULL, NULL, -1, "HOW MUCH YOUR REAL BODY MOVEMENT MOVES THE CAMERA." },
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },
     { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
-    { "INVERT LOOK X", ROW_INT01, "gVRFpInvertX",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT STICK LOOK." },
+    { "VIEW BOB",      ROW_INT01, "gVRFpViewBob",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
     { "EYE FORWARD",   ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "EYE RAISE",     ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
     { "FP SCALE",      ROW_FLOAT, "gVRFirstPersonScale",     1.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "WORLD SIZE IN FIRST PERSON ONLY." },
@@ -181,16 +191,21 @@ static const VrRow kRowsRender[] = {
     { "PASSTHROUGH",  ROW_INT01, "gVRPassthrough",    1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "SHOWS YOUR ROOM BEHIND A TABLETOP LEVEL." },
 };
 
+// INVERT LOOK lives here and not on the FIRST PERSON page because it is no longer a first-person
+// setting: one pair of switches now inverts every camera the port drives, so a third-person player
+// must not have to open a page named after a mode they are not in to find it. VR DEFAULTS came off
+// this page to make room - it is the same action already sitting on page one, which is where the
+// menu opens.
 static const VrRow kRowsSystem[] = {
     { "MOTION CTRLS",  ROW_INT01,  "gVRMotionControls", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "USE THE VR CONTROLLERS. OFF IS GAMEPAD ONLY." },
     { "FREE LOOK CAM", ROW_INT01,  "gEnhancements.Camera.FreeLook.Enabled", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "RIGHT STICK AIMS THE CAMERA. NO AUTO RECENTRE." },
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },
+    { "INVERT LOOK X", ROW_INT01,  "gEnhancements.Camera.InvertX", 1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES LEFT AND RIGHT LOOK IN EVERY CAMERA." },
+    { "INVERT LOOK Y", ROW_INT01,  "gEnhancements.Camera.InvertY", 1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "REVERSES UP AND DOWN LOOK IN EVERY CAMERA." },
     { "MENU OPACITY",  ROW_FLOAT,  "gVRMenuOpacity",    0.05f, 0.3f, 1.0f, 0.85f, NULL, NULL, -1, "HOW SOLID MENUS LOOK. LOWER SHOWS THE GAME THROUGH." },
     { "SETTINGS MENU", ROW_FLOAT,  "gVRImGuiOpacity",   0.05f, 0.3f, 1.0f, 0.95f, NULL, NULL, -1, "HOW SOLID THE PORT SETTINGS MENU LOOKS IN VR." },
-    { "VIEW BOB",      ROW_INT01,  "gVRFpViewBob",      1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
     { "RECENTER",      ROW_ACTION, NULL, 0, 0, 0, 0, RowRecenter, NULL, -1, "BRINGS THE WORLD SQUARE TO WHERE YOU ARE LOOKING." },
-    { "VR DEFAULTS",   ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING ON EVERY PAGE." },
     { "RESUME",        ROW_ACTION, NULL, 0, 0, 0, 0, RowResume, NULL, -1, "CLOSES THIS MENU AND RETURNS TO THE PAUSE SCREEN." },
 };
 

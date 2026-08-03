@@ -13,6 +13,7 @@
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "port/UI/cvar_prefixes.h"          // CVAR_SETTING - the control-scheme check in the pad merge
 #include "port/Controller/ControlSchemes.h" // CONTROL_SCHEME_MODERN
+#include "port/Controller/ModernCamera.h"   // port_cameraInvertXSign / YSign - the port's look invert
 
 // Decomp headers, each with its own extern "C" guard, so the types below keep C linkage. model.h
 // brings the model bin and its BONE TABLE, which the animated head offset walks; bonetransform.h
@@ -956,7 +957,16 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     const float dt = time_getDelta();
     const float kDead = 0.15f;
     const float lookSpeed = CVarGetFloat("gVRFpLookSpeed", 220.0f);
-    const float invertX = CVarGetInteger("gVRFpInvertX", 0) ? -1.0f : 1.0f;
+    // INVERT LOOK. Both axes read the port's own camera invert (Enhancements -> Camera), the same
+    // pair the game's own C-up first person already obeys: a player who inverts Y means every first
+    // person the port has, not just the one the cartridge shipped with. Vertical had NO invert here
+    // at all, which is why ticking it did nothing in the headset.
+    // It arrives as a plain -1 multiplier laid ON TOP of the signs below. The signs themselves were
+    // settled by testing in the headset (see the note on the yaw line) and inverting must never be
+    // done by rewriting one of them - the shipped default and the invert are separate facts, and
+    // folding them together is how a build ships inverted for everybody.
+    const float invertX = port_cameraInvertXSign();
+    const float invertY = port_cameraInvertYSign();
 
     // DIRECT look, the round-5 contract restored: the view moves exactly while the thumb does and
     // dead-stops the instant it releases. The velocity easing added later for "comfort" was the
@@ -978,13 +988,17 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
     // guRotate(-yaw) math is the one that feels inverted, so the headset wins - do not re-derive.
     sYaw -= curve(rs[0], kDead) * lookSpeed * invertX * dt;
 
+    // Stick up looks UP by default here, which is the OPPOSITE arithmetic sign to the third-person
+    // orbit (where stick up lifts the camera and tilts the view down). Both are the right default
+    // for their own camera, so this axis inverts by multiplying its own sign - never by copying the
+    // orbit's expression across.
     if (CVarGetInteger("gVRFpVerticalLook", 1) != 0) {
-        sPitch += curve(rs[1], kDead) * lookSpeed * 0.625f * dt;
+        sPitch += curve(rs[1], kDead) * lookSpeed * 0.625f * invertY * dt;
     } else {
         sPitch = 0.0f;
     }
 
-    // Mouse look, raw: counts to degrees the tick they happen, through the same invert flag as the
+    // Mouse look, raw: counts to degrees the tick they happen, through the same invert flags as the
     // stick. The stick keeps its comfort easing above; the mouse gets NONE - 1:1 position response
     // is the whole sm64coopdx / SRB2 feel, and any filter here reads as lag under the hand.
     {
@@ -994,7 +1008,7 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             const float mouseSens = CVarGetFloat("gVRMouseSens", 0.10f);
             sYaw -= mdx * mouseSens * invertX; // mouse right looks right (same minus law as the stick)
             if (CVarGetInteger("gVRFpVerticalLook", 1) != 0) {
-                sPitch += -mdy * mouseSens; // mouse up looks up
+                sPitch += -mdy * mouseSens * invertY; // mouse up looks up
             }
         }
     }

@@ -43,6 +43,7 @@ extern "C" bool vr_is_requested(void) { return sRequested; }
 extern "C" float CVarGetFloat(const char* name, float defaultValue);
 extern "C" int   CVarGetInteger(const char* name, int defaultValue);
 extern "C" void  CVarSetInteger(const char* name, int value);
+extern "C" void  CVarClear(const char* name);
 
 // ---- OpenXR state -----------------------------------------------------------
 static XrInstance     sInstance   = XR_NULL_HANDLE;
@@ -1686,15 +1687,30 @@ extern "C" void vr_begin_frame(void) {
     //   1 = Immersive Camera is ON. It is the switch the whole first-person feel hangs off, and it
     //       now also enables the view following Banjo's body, so a config that captured it while it
     //       was optional leaves the player with a first person that does none of it.
+    //   2 = Invert look folded into the port's own camera invert. The VR-only gVRFpInvertX turned
+    //       first-person yaw and nothing else, and there was never a vertical partner for it. One
+    //       pair of settings now inverts every camera, so the old key is carried across and
+    //       retired - a player who had it ticked would otherwise quietly lose their inverted look.
+    // Each step is gated on the version the config ARRIVED with, so a later step can never re-run
+    // an earlier one over a choice the player has since made.
     {
         static bool sMigrated = false;
         if (!sMigrated) {
             sMigrated = true;
-            const int kSettingsVer = 1;
-            if (CVarGetInteger("gVRSettingsVer", 0) < kSettingsVer) {
+            const int kSettingsVer = 2;
+            const int have = CVarGetInteger("gVRSettingsVer", 0);
+            if (have < 1) {
                 CVarSetInteger("gVRFpImmersive", 1);
+            }
+            if (have < 2) {
+                if (CVarGetInteger("gVRFpInvertX", 0) != 0) {
+                    CVarSetInteger("gEnhancements.Camera.InvertX", 1);
+                }
+                CVarClear("gVRFpInvertX");
+            }
+            if (have < kSettingsVer) {
                 CVarSetInteger("gVRSettingsVer", kSettingsVer);
-                printf("[VR] settings migrated to v%d: Immersive Camera enabled.\n", kSettingsVer);
+                printf("[VR] settings migrated from v%d to v%d.\n", have, kSettingsVer);
                 fflush(stdout);
             }
         }

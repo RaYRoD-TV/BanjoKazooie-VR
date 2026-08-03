@@ -118,12 +118,6 @@ void LighthouseMenu::AddMenuVR() {
         .Options(FloatSliderOptions().Min(40.0f).Max(320.0f).Step(10.0f).DefaultValue(160.0f).Tooltip(
             "Degrees per second the right stick turns the First Person view at full deflection."));
 
-    AddWidget(path, "Invert Look (X Axis)", WIDGET_CVAR_CHECKBOX)
-        .CVar("gVRFpInvertX")
-        .RaceDisable(false)
-        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
-            "Reverses left/right stick look in First Person."));
-
     AddWidget(path, "Swim Follow", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRFpSwimFollow")
         .RaceDisable(false)
@@ -294,6 +288,23 @@ void LighthouseMenu::AddMenuVR() {
         .RaceDisable(false)
         .Options(FloatSliderOptions().Min(0.02f).Max(0.60f).Step(0.02f).DefaultValue(0.10f).Tooltip(
             "Degrees of turn per mouse count. Higher is faster."));
+
+    // The same two settings as Enhancements -> Camera, repeated here so a player tuning VR never
+    // has to guess that the knob lives on another page. Both boxes drive one value, so ticking
+    // either shows in both.
+    AddWidget(path, "Invert Look (X Axis)", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_ENHANCEMENT("Camera.InvertX"))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
+            "Reverses left/right look on the stick and the mouse, in every camera the port "
+            "drives - First Person, the Free Look orbit and the Diorama alike."));
+
+    AddWidget(path, "Invert Look (Y Axis)", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_ENHANCEMENT("Camera.InvertY"))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
+            "Reverses up/down look on the stick and the mouse, in every camera the port drives. "
+            "First Person had no vertical invert at all before this."));
 
     AddWidget(path, "Menu Opacity", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRMenuOpacity")
