@@ -14,6 +14,8 @@ void viewport_getPosition_vec3s(s16 dst[3]);
 void viewport_getRotation_vec3f(f32 arg0[3]);
 f32 viewport_getYaw(void);
 void viewport_getRotation_f3(f32 *pitch, f32 *yaw, f32 *roll);
+// [port] VR: claim the head-locked HUD plane before a screen-laid-out element built from 3D models.
+void viewport_beginHudPlane(Gfx **gfx, Mtx **mtx);
 void viewport_setRenderViewportAndOrthoMatrix(Gfx **gfx, Mtx **mtx);
 void viewport_setRenderViewportAndPerspectiveMatrix(Gfx **gfx, Mtx **mtx);
 void viewport_setRenderPerspectiveMatrix(Gfx **gfx, Mtx **mtx, f32 near, f32 far);

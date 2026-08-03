@@ -402,10 +402,24 @@ static void vr_build_eye_matrix(int eye) {
         printf("[VR] 6DoF rest captured at (%.2f, %.2f, %.2f)\n", cx, cy, cz);
     }
     float dcx = cx, dcy = cy, dcz = cz;
+    // DIORAMA IS A ROOM, NOT A BODY, so its head tracking must be 1:1 and the damping stands down.
+    //
+    // The damping exists for the modes where the eye stands in for Banjo's own head: there, leaning
+    // half a metre would walk the camera through walls the game collided for a body that never
+    // moved, so only a tenth of the lean is allowed through. Diorama has no body. You are a person
+    // in a room looking at a model on a table, and the table is anchored to the room.
+    //
+    // Left damped, that anchor was the one thing inside your own head's motion radius: your eyes
+    // swept about ten centimetres around your neck as you looked, the tabletop was allowed to
+    // answer with one, and the other nine followed your face. Full rotation with almost no
+    // parallax on something at arm's length is a straight vestibular conflict - "it moves with my
+    // head and it's quite nauseous", which is exactly what it was reported as. Every other mode
+    // hid this because their anchor is metres away, where a tenth of a lean is a rounding error.
+    const float headScaleNow = (sViewMode == VR_VIEW_DIORAMA) ? 1.0f : sHeadScale;
     if (sHeadRestSet) {
-        dcx = sHeadRest[0] + (cx - sHeadRest[0]) * sHeadScale;
-        dcy = sHeadRest[1] + (cy - sHeadRest[1]) * sHeadScale;
-        dcz = sHeadRest[2] + (cz - sHeadRest[2]) * sHeadScale;
+        dcx = sHeadRest[0] + (cx - sHeadRest[0]) * headScaleNow;
+        dcy = sHeadRest[1] + (cy - sHeadRest[1]) * headScaleNow;
+        dcz = sHeadRest[2] + (cz - sHeadRest[2]) * headScaleNow;
         sHeadOffsetM[0] = dcx - sHeadRest[0];
         sHeadOffsetM[1] = dcy - sHeadRest[1];
         sHeadOffsetM[2] = dcz - sHeadRest[2];

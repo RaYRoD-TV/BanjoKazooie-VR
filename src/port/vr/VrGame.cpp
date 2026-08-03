@@ -226,6 +226,14 @@ static bool VrFp_Active(void) {
 // the eye is still parked inside his head).
 static int sFpCamDriveTick = -100;
 
+// Is VR First Person the mode right now? Deliberately NOT port_vrFirstPerson_hidePlayer: that one
+// carries the drive-tick freshness below, which goes stale the moment the game frames its own shot,
+// and a suppression that lapses mid-dialogue would let the cartridge's own look mode back in at the
+// worst possible moment. This asks the plain question and gets a stable answer.
+extern "C" int port_vrFirstPersonMode(void) {
+    return VrFp_Active() ? 1 : 0;
+}
+
 extern "C" int port_vrFirstPerson_hidePlayer(void) {
     if (!VrFp_Active()) {
         return 0;
@@ -529,6 +537,19 @@ static float VrWrapDeg(float deg) {
     return deg - 180.0f;
 }
 
+// Standing on the ground with only the walk cycle moving his head. In these states the ONLY thing
+// displacing the head vertically is the stride, so View Bob can take the vertical away without
+// costing anything else. Everywhere else - crouching, attacking, landing, swimming, flying - the
+// vertical IS the move, and must survive whatever View Bob is set to. Idles are included because
+// Banjo breathes and shifts on the spot, which bobs the eye just as a walk does.
+static bool VrFp_IsStrideState(s32 st) {
+    return st == BS_1_IDLE || st == BS_2_WALK_SLOW || st == BS_3_WALK || st == BS_4_WALK_FAST ||
+           st == BS_C_SKID || st == BS_1F_WALK_CREEP || st == BS_15_BTROT_IDLE ||
+           st == BS_16_BTROT_WALK || st == BS_1B_WONDERWING_IDLE || st == BS_1C_WONDERWING_WALK ||
+           st == BS_26_LONGLEG_IDLE || st == BS_27_LONGLEG_WALK || st == BS_3A_CARRY_IDLE ||
+           st == BS_3B_CARRY_WALK;
+}
+
 // ---- what just happened to the body -------------------------------------------
 //
 // Taking a hit and dying, in every skin Banjo can be wearing. Each transformation runs its own ow
@@ -754,6 +775,24 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             // that fixed height alone - the right answer for a termite or a pumpkin.
             if (!VrFp_HeadBoneOffsetLocal(eye[1] - foot[1], target)) {
                 target[0] = target[1] = target[2] = 0.0f;
+            }
+            // VIEW BOB OWNS THE WALKING BOB, whichever code produces it. A player turned View Bob
+            // off, still bobbed while walking, and could only stop it by turning off Immersive
+            // Camera outright - losing the crouch, the attacks and the lean along with it. He was
+            // right and the switch was lying: it gated an older synthetic bob further down this
+            // function, while Banjo's REAL walk animation was bobbing his head through the bone
+            // chain above and answering to nothing.
+            //
+            // Only the vertical, and only while walking. Body-local Y is the stride's up and down
+            // (X is the pitch axis, Z is forward); zeroing it in these states leaves the sway and
+            // leaves every other state untouched, so a crouch still ducks, an attack still lunges
+            // and a landing still dips. Those are what people mean by the immersive camera, and
+            // none of them is what anybody calls view bob.
+            //
+            // Ordered before the clamp below on purpose: that clamp scales the whole vector by its
+            // own length, so a Y removed afterwards would still have decided how far X and Z moved.
+            if (CVarGetInteger("gVRFpViewBob", 0) == 0 && VrFp_IsStrideState(bs_getState())) {
+                target[1] = 0.0f;
             }
             // CLAMP THE MAGNITUDE, direction kept. A full crouch measures about 57 units (47 down,
             // 32 forward) and has to survive whole - it IS the feature. The beak buster swings the
@@ -1941,6 +1980,9 @@ int port_vrImGuiMenuVisible(void) {
 void port_vrFpFaceViewYaw(void) {
 }
 void port_vrHapticAttackHit(void) {
+}
+int port_vrFirstPersonMode(void) {
+    return 0; // flat build: the cartridge's own C-Up first person is untouched
 }
 }
 

@@ -1937,6 +1937,45 @@ SubframePacing ComputeSubframePacing() {
         subframesPerTick = 1;
     }
 
+    // A HEADSET'S REFRESH RATE IS NOT OURS TO ROUND. The floor above is right for a monitor,
+    // where we choose the present rate and a clean multiple of the tick is the smoothest thing
+    // we can pick. It is wrong for a headset, where the rate is a fact: the compositor is going
+    // to light the panel 72 times a second whatever we do, and our only job is to hand it one
+    // finished frame each time.
+    //
+    // 72 / 30 = 2.4. Floored to 2 and multiplied back out below, the present target became 60 -
+    // so the game submitted 60 frames to a 72 Hz display, the compositor showed four of them once
+    // and the fifth twice, and that 1,1,1,1,2 cadence beat at 12 Hz. Head ROTATION was immune,
+    // because the compositor reprojects the layer from the pose we submit, but the game camera is
+    // baked into the eye matrix and is not reprojected - so a stick-driven pan juddered while
+    // looking around did not. That is exactly what both reporters described, and it is why the
+    // earlier "read the headset's rate, not the monitor's" fix did not help: it corrected the
+    // INPUT to this arithmetic, and the arithmetic then threw the correction away.
+    //
+    // Ratios that are already integers were never affected, which matches the field reports
+    // precisely: 90/30 = 3 and 120/30 = 4 are clean, while 72/30 = 2.4 and 80/30 = 2.67 are the
+    // rates that judder - and 72 and 80 are what a Quest runs.
+    //
+    // So carry the fraction across ticks instead of discarding it. 2, 2, 3 repeating averages
+    // exactly 2.4, every submitted frame lands on a real vblank, and game time still advances one
+    // tick per tick because the pace target below is the headset's true rate rather than a
+    // rounded one.
+    // Carried in whole frames over whole ticks, so the average is EXACT for any rate rather than
+    // exact for the ones that happen to divide nicely. A fixed-point carry in thousandths came out
+    // 0.33 frames a second short at 80 Hz, which is a dropped frame every three seconds - the same
+    // class of periodic hitch this is here to remove, just rarer and harder to catch.
+    if (!replayMode && vr_is_active() && target_fps > 0) {
+        static int sSubframeCarry = 0; // frames owed, in units of one tick's worth
+        sSubframeCarry += target_fps;
+        subframesPerTick = sSubframeCarry / effective_logic_fps;
+        sSubframeCarry %= effective_logic_fps;
+        if (subframesPerTick < 1) {
+            subframesPerTick = 1;
+            sSubframeCarry = 0;
+        }
+        return { subframesPerTick, target_fps };
+    }
+
     // Replay modes never interpolate: one render per tick, held to viPerTick/60 by the floor.
     if (replayMode) {
         subframesPerTick = 1;
@@ -2003,6 +2042,32 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
         wnd->SetTargetFps(fps);
         // Hardcoded: CVarGetInteger crashes due to heap corruption in debug builds.
         wnd->SetMaximumFrameLatency(2);
+    }
+
+    // THE DESKTOP VBLANK MUST NOT PACE A HEADSET. Every VR sub-frame still ends in the window
+    // backend's SwapBuffersBegin, which calls SDL_GL_SwapWindow with a swap interval of 1 by
+    // default - so each eye submission was made to wait on the MONITOR's vertical blank before it
+    // could go to the compositor. On a 60 Hz desktop that is a hard 60 ceiling no matter what the
+    // headset runs at, which is why one reporter found he had to switch Vsync off by hand to see
+    // 72 at all. He was working around this line.
+    //
+    // Held in memory only, and never written to his config: the flag is re-read on every swap, so
+    // clearing it while a session is live is enough, and his saved preference is what he gets back
+    // the moment he plays flat again. Tearing is not a concern here because nothing the headset
+    // shows goes through the desktop window - that window is a mirror.
+    {
+        static int sSavedVsync = -1;
+        if (vr_is_active()) {
+            if (sSavedVsync < 0) {
+                sSavedVsync = CVarGetInteger(CVAR_VSYNC_ENABLED, 1);
+            }
+            if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) != 0) {
+                CVarSetInteger(CVAR_VSYNC_ENABLED, 0);
+            }
+        } else if (sSavedVsync >= 0) {
+            CVarSetInteger(CVAR_VSYNC_ENABLED, sSavedVsync);
+            sSavedVsync = -1;
+        }
     }
 
     if (GfxDebuggerIsDebugging()) {

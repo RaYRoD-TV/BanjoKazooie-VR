@@ -14,7 +14,17 @@ int bainput_should_beak_bust(void){
     return bakey_pressed(BUTTON_Z) && can_beak_bust();
 }
 
+// [port] VR first person owns the view; the cartridge's own C-Up look must stand down.
+extern int port_vrFirstPersonMode(void);
+
 int bainput_should_look_first_person_camera(void){
+    // TWO FIRST-PERSON CAMERAS MUST NEVER BOTH BE LIVE. The game's own look mode roots Banjo to
+    // the spot until you press A or B, which on a flat screen is a fair trade for looking around
+    // and in a headset is just being unable to move for reasons you cannot see. You are already
+    // standing in his head with full head tracking, so there is nothing the mode could add.
+    if (port_vrFirstPersonMode()) {
+        return 0;
+    }
     return bakey_pressed(BUTTON_C_UP) && can_view_first_person();
 }
 

@@ -241,6 +241,12 @@ void func_8030F338(void){
 
 void gcdialog_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx){
     s32 i;
+    // [port] VR: put the renderer on the head-locked HUD plane BEFORE the first box, so both boxes
+    // land where their own text lands. Without this the first box drawn - always the bottom one -
+    // is the only element in the whole dialogue still sitting in the world, and its text floats out
+    // of it. The second box was never affected because the first box's portrait sprite establishes
+    // the plane on its way past. Costs two matrices and draws nothing.
+    viewport_beginHudPlane(gfx, mtx);
     for(i = 0; i<2; i++){
         gczoombox_draw(g_Dialog.zoombox[i], gfx, mtx, vtx);
     }

@@ -288,9 +288,26 @@ extern "C" void port_shapeControllerInput(void* contPad) {
             if (CButtonIsAxis(controller, BTN_CLEFT))  axisMaskM |= BTN_CLEFT;
             if (CButtonIsAxis(controller, BTN_CDOWN))  axisMaskM |= BTN_CDOWN;
             if (CButtonIsAxis(controller, BTN_CUP))    axisMaskM |= BTN_CUP;
-            if (arx * arx + ary * ary > 24 * 24) {
-                pad->button &= ~axisMaskM;
-            }
+            // NO MAGNITUDE TEST. There used to be one here (`> 24*24`), and it was a second
+            // threshold competing with the one that SETS the bit - which is the whole bug.
+            // libultraship asserts an axis-sourced C press at 25% of raw stick travel, but the pad
+            // fields read above have been through a 20% deadzone and a rescale since, so 24 on the
+            // pad needs about 43% of raw travel. Everything between 25% and 43% therefore set
+            // C-Up and did not get stripped: a leak band a fifth of the stick wide, sitting exactly
+            // where a gentle VR look-up lives.
+            //
+            // Two field reports came out of that one band, and they are the same bug seen from both
+            // sides. Push the stick up hard and you clear 43%, the strip fires, and C-Up never
+            // reaches the game - so the egg does not come out. Let the stick RELAX back through the
+            // band and C-Up re-asserts against a previous tick of zero, which is a fresh press edge,
+            // and the game drops into its own first person and locks Banjo until you press A or B.
+            // A thumb returns to centre far more slowly than it leaves it, which is why the trap
+            // fires "sometimes" rather than always.
+            //
+            // The mask above already answers the only question worth asking - is this C bit bound to
+            // a stick axis - by reading the bindings themselves. Re-deriving that from the merged pad
+            // was never necessary and could only ever disagree.
+            pad->button &= ~axisMaskM;
         }
 
         const s32 mode = getGameMode();

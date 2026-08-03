@@ -81,6 +81,24 @@ void viewport_getRotation_f3(f32 *pitch, f32 *yaw, f32 *roll) {
     *roll = sViewportRotation[2];
 }
 
+// [port] VR: claim the head-locked HUD plane before drawing a screen-laid-out element that is
+// built out of 3D MODELS rather than sprites.
+//
+// The dialogue frame is one of these: it looks like a HUD panel but it is real geometry placed at a
+// world point, so in VR it renders wherever the projection in flight happens to point. Its TEXT is
+// screen-space and always lands on the HUD plane, so the two came apart - and only for the box the
+// game draws FIRST, because the second box inherits the plane from the first one's portrait sprite.
+// That is why it was reported as "the bottom dialogue is always wrong and the top one is fine": the
+// bottom box is simply the one drawn first, and nothing had established the plane yet.
+//
+// An ortho load followed by the perspective restore is what flips the renderer onto the plane. It
+// draws nothing and costs two matrices. Any screen-laid-out element made of models wants this
+// first, so it lives here beside the two calls it is made of rather than being copied to each site.
+void viewport_beginHudPlane(Gfx **gfx, Mtx **mtx) {
+    viewport_setRenderViewportAndOrthoMatrix(gfx, mtx);
+    viewport_setRenderViewportAndPerspectiveMatrix(gfx, mtx);
+}
+
 void viewport_setRenderViewportAndOrthoMatrix(Gfx **gfx, Mtx **mtx) {
     gSPViewport((*gfx)++, &sViewportStack[sViewportStackIndex]);
 
