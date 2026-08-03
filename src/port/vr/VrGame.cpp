@@ -890,15 +890,13 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         // surface", reported twice. The state machine's OWN boundary predicate (func_802A73BC,
         // the same call it uses to leave the dive states near the surface) is the missing term:
         // follow only when genuinely submerged AWAY from the surface. Liveness-stamped like every
-        // bs-state consumer (round 31). The follow stays CAPPED per tick - 2.5 degrees (~75
-        // deg/s) tracks a real swim turn while staying under the vection threshold.
+        // bs-state consumer (round 31).
         // FLYING wants the same idea but NOT the same numbers, and reusing swimming's was why the
         // first attempt did nothing. Flight yaw runs bounded at up to 500 deg/s (bFly.c, R held),
-        // which is well past 15 degrees in a tick, so swimming's sanity window threw away the whole
-        // banking turn - the follow never engaged at all during the exact manoeuvre it exists for.
-        // Flight also steers on the stick's X axis alone (bastick_getX), so a hard bank is measured
-        // on X, not on the stick magnitude swimming gates against. And BS_23_FLY_ENTER is NOT in the
-        // flight family, so the follow was dead for the whole entry.
+        // which is well past the 15 degree window swimming used to carry, so that window threw away
+        // the whole banking turn - the follow never engaged at all during the exact manoeuvre it
+        // exists for. And BS_23_FLY_ENTER is NOT in the flight family, so the follow was dead for
+        // the whole entry.
         const s32 bsNow = bs_getState();
         const bool swimFollow = player_inWater() && bsbswim_inSet(bsNow) && !func_802A73BC();
         const bool flyFollow = bsbfly_inSet(bsNow) || bsNow == BS_23_FLY_ENTER;
@@ -906,18 +904,40 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
             f32 move[2];
             controller_getJoystick(0, move);
-            // Swimming steers with the whole stick; flight banks on X. Measure what each one uses.
-            const float mag = flyFollow ? fabsf(move[0])
-                                        : sqrtf(move[0] * move[0] + move[1] * move[1]);
-            // Window = "is this a steer or a teleport": wide enough to admit a real banking turn,
-            // still tight enough that a warp or a respawn cannot drag the view with it.
-            const float window = flyFollow ? 45.0f : 15.0f;
-            // Cap = how fast the view is allowed to follow. Swimming's 2.5 (~75 deg/s) is a gentle
-            // drift; flight turns several times faster, and a view that lags that far behind reads
-            // as the world sliding sideways. 8 deg/tick is ~240 deg/s: it keeps up with a bank
-            // without ever outrunning the body, which is what the comfort rule actually asks.
-            const float cap = flyFollow ? 8.0f : 2.5f;
-            if (mag > 0.35f && dyaw > -window && dyaw < window) {
+            // Both moves yaw on the stick's X axis and nothing else: underwater X IS the steer
+            // (bSwim.c walks the yaw ideal by bastick_getX every tick, and Y is pitch), and flight
+            // banks on X. So X alone answers "is the player turning right now".
+            const float steer = fabsf(move[0]);
+            // How far off centre counts as steering. Flight keeps 0.35, since a bank is a firm
+            // push. Swimming drops to a whisker off centre, because the game gives the swim turn no
+            // deadzone of its own: the turn rate is straight-line proportional to X, so even half a
+            // stick still swings Banjo at ~45 deg/s while the old 0.35 gate left the view parked
+            // through the whole gentle course correction ("sometimes Banjo turns and it doesn't
+            // follow"). The pad has already zeroed everything inside the hardware deadzone before
+            // we see it, so any X still standing IS a commanded turn; 0.05 sits a couple of raw
+            // counts above that edge so stick jitter on its own can never start the view moving.
+            const float gate = flyFollow ? 0.35f : 0.05f;
+            // Window = "is this a steer or a snap": as wide as the game's own yaw integrator can
+            // move him in a single tick, and no wider. Underwater its fastest bound is the dive
+            // entry's 500 deg/s, which over the longest tick the port runs (1/20 s on a slow frame)
+            // is 25 degrees, so 30 admits every real turn. Past that it did not come from the
+            // integrator at all: taking a hit underwater re-faces Banjo instantly away from what
+            // hit him (yaw_applyIdeal in the ow state, up to 180 degrees in one tick), and a load
+            // zone can hand him any angle at all. Those must never drag the view along.
+            const float window = flyFollow ? 45.0f : 30.0f;
+            // Cap = how fast the view may follow, sized to NEVER bite on a real turn. A cap that
+            // bites does not lag, it LOSES the yaw: the follow only runs while the stick is held,
+            // so every degree clipped while Banjo turns is a degree the view never gets back, and
+            // the turn ends with the eye pointing somewhere he is not. That was the whole
+            // complaint. Underwater he yaws 2.4 to 3.1 degrees a tick normally and 4.3 with R held
+            // (129 deg/s), so the old 2.5 threw away up to 1.8 degrees EVERY tick of a hard turn -
+            // a 180 degree spin left the view 75 degrees off his nose with no way back but the
+            // right stick. The stick can ask for at most 4.3 a tick, and the yaw system will not
+            // move him faster than 250 deg/s, which is 12.5 degrees across that same slow tick, so
+            // 12.5 clears every real turn and the view tracks his body one to one. It still refuses
+            // a teleport: nothing bigger than 12.5 degrees can ever transfer in one tick.
+            const float cap = flyFollow ? 8.0f : 12.5f;
+            if (steer > gate && dyaw > -window && dyaw < window) {
                 if (dyaw > cap) {
                     dyaw = cap;
                 }

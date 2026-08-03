@@ -7,6 +7,9 @@
 #include "core2/ba/physics.h"
 #include "core2/yaw.h"
 
+// [port] VR first person hides the player model (src/port/vr/VrGame.cpp); 0 outside VR First Person.
+extern int port_vrFirstPerson_hidePlayer(void);
+
 const f32 D_80364AD0 = 80.0f;
 const f32 D_80364AD4 = 425.0f;
 const f32 D_80364AD8 = 0.56f;
@@ -48,6 +51,16 @@ static void __bsbwhirl_end(void){
 }
 
 static void __bsbwhirl_spawnSparkle(void){
+    // [port] The sparkles are authored to wrap the bear as seen from behind: every one of them is
+    // born 48 units in front of him and 50 to 85 units up (func_803546E8 in core2/fx/projectile_render.c),
+    // then flies up and out. With the eye inside his head that cloud is a hand's width off the face,
+    // and charging in VR first person filled the bottom of the view with gold so you could not see
+    // where you were going. Nothing else reads the particle, so not spawning it is the whole fix.
+    // Same gate that hides the bear, so the instant the game takes the camera back - third person,
+    // a dialogue shot, the flat build - the sparkles are back with it.
+    if(port_vrFirstPerson_hidePlayer())
+        return;
+
     commonParticle_new(2,1);
 }
 
