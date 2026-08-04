@@ -589,10 +589,17 @@ static void vr_build_eye_matrix(int eye) {
         float M[4][4] = { { 0 } };
         M[0][0] = hw; M[1][1] = hh;
         // NOT zero: Banjo's HUD is real geometry with authored Z (text -10, icons at their
-        // own depths). Flattening it all to one depth made overlapping widget layers
-        // z-fight - re-rolled every sub-frame as the plane follows the head - which is the
-        // note-counter / life-bar / air-meter flicker. A few millimetres per ortho unit
-        // keeps the authored ordering without visibly leaving the plane.
+        // own depths), and a few millimetres per ortho unit keeps that authored ordering
+        // without visibly leaving the plane.
+        //
+        // THIS IS NOT THE COUNTER FLICKER, whatever an earlier version of this comment said.
+        // It named the life bar, air meter and note counter as z-fighting here, and that was
+        // wrong: those widgets clear G_ZBUFFER and draw with RM_XLU_SURF, which carries neither
+        // Z_CMP nor Z_UPD, so they never depth-test and this value cannot reach them. Two fixes
+        // were built on that misreading and both were inert. The real cause was a thread race on
+        // the widescreen HUD anchor - see port_hudOrthoShift in GraphicsPatches.cpp. Changing
+        // this number moved the plane, the flicker's look changed with it, and the wrong cause
+        // got written down. A symptom that responds to a change is not proof of its cause.
         M[2][2] = 0.002f;
         M[3][1] = hudY; M[3][2] = -D; M[3][3] = 1.0f; // quad centre D metres ahead in reference space
 
@@ -759,10 +766,17 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         float M[4][4] = { { 0 } };
         M[0][0] = hw; M[1][1] = hh;
         // NOT zero: Banjo's HUD is real geometry with authored Z (text -10, icons at their
-        // own depths). Flattening it all to one depth made overlapping widget layers
-        // z-fight - re-rolled every sub-frame as the plane follows the head - which is the
-        // note-counter / life-bar / air-meter flicker. A few millimetres per ortho unit
-        // keeps the authored ordering without visibly leaving the plane.
+        // own depths), and a few millimetres per ortho unit keeps that authored ordering
+        // without visibly leaving the plane.
+        //
+        // THIS IS NOT THE COUNTER FLICKER, whatever an earlier version of this comment said.
+        // It named the life bar, air meter and note counter as z-fighting here, and that was
+        // wrong: those widgets clear G_ZBUFFER and draw with RM_XLU_SURF, which carries neither
+        // Z_CMP nor Z_UPD, so they never depth-test and this value cannot reach them. Two fixes
+        // were built on that misreading and both were inert. The real cause was a thread race on
+        // the widescreen HUD anchor - see port_hudOrthoShift in GraphicsPatches.cpp. Changing
+        // this number moved the plane, the flicker's look changed with it, and the wrong cause
+        // got written down. A symptom that responds to a change is not proof of its cause.
         M[2][2] = 0.002f;
         M[3][1] = -D * tanf(0.8727f) * sHudScale * 0.15f; M[3][2] = -D; M[3][3] = 1.0f;
         float Ph[4][4], MP[4][4];

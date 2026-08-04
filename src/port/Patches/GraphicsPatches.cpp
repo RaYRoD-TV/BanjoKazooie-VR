@@ -9,6 +9,7 @@
 #include "port/ShipInit.hpp"
 #include "port/ShipUtils.h"
 #include "port/Patches/GeoCull.h"
+#include "port/vr/vr.h" // vr_is_active: the widescreen HUD anchor must stand down in stereo
 
 #define CVAR_DRAW_DISTANCE CVAR_ENHANCEMENT("Graphics.DrawDistance")
 #define CVAR_DISABLE_LOD CVAR_ENHANCEMENT("Graphics.DisableLOD")
@@ -46,6 +47,30 @@ void port_modelRenderResetTLUT(Gfx** gfx) {
 static const float kHudCenterBand = 32.0f;
 
 float port_hudOrthoShift(float refX) {
+    // IN VR THERE IS NOTHING TO ANCHOR AGAINST, AND ASKING WAS THE FLICKER.
+    //
+    // This shift only ever existed to be cancelled again: it pushes a widget out toward a
+    // widescreen edge, and the renderer's 4:3 squeeze (AdjXForAspectRatio) pulls it back to where
+    // the artist put it. In stereo that squeeze does not run at all - it returns X untouched,
+    // because the per-eye projection already carries the right aspect and squeezing again would
+    // stretch the world. So in VR the push has nothing cancelling it and is simply wrong.
+    //
+    // Worse than wrong: UNSTABLE. The number it asked for is the renderer's CURRENT aspect ratio,
+    // and the VR pass swaps that field to the eye buffer's aspect for the duration of each eye and
+    // puts it back afterwards. The display list is built on the game thread while the render thread
+    // is doing that swapping, so the answer depended on which of the two happened to be in the
+    // field at the instant the widget was built. The two answers are 46 pixels apart out of a
+    // 146 pixel half-width, and the widgets alternated between them at frame rate. That is the
+    // life bar, the air meter and the jiggy and token counters flickering, and it is why they and
+    // nothing else flicker: these are the only things in the game that call this function.
+    //
+    // For the record, the two fixes shipped before this one could never have worked. Both were
+    // aimed at depth ordering, and these widgets clear G_ZBUFFER and draw with RM_XLU_SURF, which
+    // carries neither Z_CMP nor Z_UPD - they do not depth-test at all. The comment in vr.cpp that
+    // blames z-fighting for this flicker is a misattribution and has been corrected.
+    if (vr_is_active()) {
+        return 0.0f;
+    }
     float halfW = (f32)gFramebufferWidth * 0.5f;
     float extraHalf = (f32)gFramebufferHeight * 0.5f * GameEngine_GetAspectRatio() - halfW;
     if (extraHalf < 0.0f) {
