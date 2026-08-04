@@ -317,11 +317,30 @@ void cube_sortRelative(Cube *cube){
         __cube_sort(cube, 0);
 }
 
+// [port] VR first person: what Banjo is CARRYING is not drawn, for the same reason the bear is not.
+// The carried actor's position is written every tick to baModel_getPosition() plus a carry height
+// (core2/ba/carry.c), and baModel_getPosition averages ref points 5 and 6 - which the skipped
+// player draw has cleared, so both take the fallback and come back as the FEET plus
+// baModel_refPointFallbackRaise(). That puts the object 50 units under the eye instead of up in his
+// hands: Conga's orange, whose carry height is zero (levelcollectible.c), is drawn straight through
+// the eye and the view is inside the fruit. Presents, the gold bullion, the acorn and the
+// caterpillar all sit at the same or a lower offset, so this is one guard for all of them - and for
+// any carryable added later, since this is the only place a marker's draw is dispatched.
+// Only the DRAW is skipped. The position write, the throw interrupt and the throw handler all live
+// on the update path, so the object stays exactly as throwable as before - the same shape as the
+// Wonderwing sparkle, which is skipped for the same reason (core2/bs/bWhirl.c). The gate is the one
+// that hides the bear, so the moment the game takes the camera back the object comes back with him.
+extern int port_vrFirstPerson_hidePlayer(void);
+extern ActorMarker *bacarry_getMarkerWithExtraSteps(void);
+
 static void __marker_draw(ActorMarker *this, Gfx **gfx, Mtx **mtx, Vtx **vtx){
     Actor *actor;
     u32 draw_dist;
     f32 draw_dist_f;
     f32 percentage;
+
+    if(port_vrFirstPerson_hidePlayer() && bacarry_getMarkerWithExtraSteps() == this)
+        return;
 
     FrameInterpolation_RecordOpenChildHash3("marker", (uintptr_t)this, (uintptr_t)this->actrArrayIdx, 0);
 

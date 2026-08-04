@@ -557,6 +557,32 @@ static bool VrFp_IsSurfaceSwim(s32 st) {
     return st == BS_2D_SWIM_IDLE || st == BS_2E_SWIM;
 }
 
+// TOUCHING DOWN, whatever carried you there. Every landing in the game funnels into one state: the
+// jump, the fall, the fly-down, the barge, the rebound and the beak buster's recovery all set
+// BS_20_LANDING the moment player_isStable goes true, and that state starts no animation of its
+// own - it plays the TAIL of whatever was already running, which in every one of those is a crouch
+// and a stand.
+//
+// The somersault is the one that does not go there. bsbflip_update never leaves for BS_20_LANDING;
+// on touchdown it REPLAYS its own enter animation from 0.8566 as the landing (_bsbflip_802A2DC0)
+// and the state stays BS_12_BFLIP for the ~0.32 s that runs. The somersault is bounded by its own
+// sub-range end of 0.7866 and the landing replay starts past it - the same clock test the flip's
+// view tilt already makes, and the one that killed the extra flip, so the file keeps one
+// definition of "the flip has landed" instead of two that can drift apart.
+// NOT covered: the ASSET_4C hold loop. If the flip's own rotation turns out to swing the eye
+// through the whole move, this predicate is the wrong window and the cap belongs upstream.
+static bool VrFp_IsLandingState(s32 st) {
+    if (st == BS_20_LANDING || st == BS_4C_LANDING_IN_WATER) {
+        return true;
+    }
+    if (st == BS_12_BFLIP) {
+        void* anim = baanim_getAnimCtrlPtr();
+        return anim != NULL && anctrl_getIndex(anim) == ASSET_4B_ANIM_BSBFLIP_ENTER &&
+               anctrl_getAnimTimer(anim) > 0.7866f;
+    }
+    return false;
+}
+
 // ---- what just happened to the body -------------------------------------------
 //
 // Taking a hit and dying, in every skin Banjo can be wearing. Each transformation runs its own ow
@@ -834,6 +860,31 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             if (VrFp_IsSurfaceSwim(bs_getState())) {
                 target[1] = 0.0f;
             }
+            // A LANDING IS NOT A CROUCH, and until now the head walk could not tell them apart.
+            // Landing animations duck Banjo's head hard on impact, and the somersault's is the
+            // worst: its replay opens at 0.8566 with the body already deep in the crouch, so the
+            // target arrives as a STEP rather than a ramp (the game cross-fades the drawn bear
+            // into that pose over 0.2 s, but the sampler above reads the incoming pose at full
+            // weight from the first tick). The ease then delivers three quarters of it in four
+            // ticks: down hard, and back up as he stands. "The camera jolts down into the ground
+            // and back up" on landing the flip - reported in those words.
+            //
+            // ONE rule, not two mechanisms: the dip is floored, tighter while landing. 30 during a
+            // landing sits comfortably under the 47-unit crouch drop this feature exists for, so a
+            // landing reads as a smaller duck than a deliberate crouch, which is exactly what it
+            // is. 50 everywhere else bounds anything the sampler meets that is deeper than the
+            // deliberate crouch - the tucked somersault, the slam - while leaving the crouch
+            // itself whole. Vertical only, downward only, and BEFORE the magnitude clamp below for
+            // the same reason the View Bob rule is: that clamp scales the whole vector, so a Y
+            // trimmed after it would still have decided how far X and Z moved. The forward lunge
+            // is what makes an impact read as an impact, and it survives whole - trimming by
+            // length would take the lunge away along with the drop.
+            {
+                const f32 kDipCap = VrFp_IsLandingState(bs_getState()) ? 30.0f : 50.0f;
+                if (target[1] < -kDipCap) {
+                    target[1] = -kDipCap;
+                }
+            }
             // CLAMP THE MAGNITUDE, direction kept. A full crouch measures about 57 units (47 down,
             // 32 forward) and has to survive whole - it IS the feature. The beak buster swings the
             // head 88 units, most of a metre at life size, and applied raw that is a plunge the
@@ -972,6 +1023,22 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
         }
         if (engaged) {
             position[1] = minEyeY;
+        }
+    }
+
+    // A NEW ROOM MEANS A NEW FACING, and the view base has to follow it. The base is deliberately
+    // captured once and held - that is what makes it world-stable - but a door, a warp pad or a
+    // level entry re-faces BANJO while first person never disengages, so the captured yaw was still
+    // pointing wherever you happened to look in the previous room. Every exit came out facing the
+    // wrong way, reported as exactly that, in all areas. The map changing is the game's own
+    // statement that you have been re-placed, so the base re-captures from his fresh facing - the
+    // same thing entering first person does - rather than trusting a yaw from another room.
+    {
+        static s32 sBaseMap = -1;
+        const s32 mapNow = (s32)gsworld_getMap();
+        if (mapNow != sBaseMap) {
+            sBaseMap = mapNow;
+            sBaseValid = false;
         }
     }
 
