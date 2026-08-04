@@ -66,6 +66,17 @@ void LighthouseMenu::AddMenuVR() {
             "1.0 is stock, 0.5 is right behind his shoulder, 2.0 is a wide view. Scales the "
             "distance the game itself asks for, so wall collision keeps working normally."));
 
+    AddWidget(path, "Camera Forward", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRThirdPersonFwd")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions().Min(-1.0f).Max(3.0f).Step(0.05f).DefaultValue(0.0f).Tooltip(
+            "Slides the third person camera along its own line of sight, in metres, on top of "
+            "Camera Distance. Push far enough and you end up level with Banjo or just past him, "
+            "which is the close over-the-shoulder view. It follows the CAMERA, not your head, so "
+            "leaning forward does not walk you into the scenery. 0 leaves the view exactly as it "
+            "was. Note the eye height for this mode is Eye Height above, not the First Person one "
+            "below: that one only moves the view while you are actually in first person."));
+
     AddWidget(path, "First Person", WIDGET_SEPARATOR_TEXT);
 
     AddWidget(path, "First Person Forward", WIDGET_CVAR_SLIDER_FLOAT)

@@ -104,6 +104,7 @@ static void RowDefaults(void) {
     CVarSetInteger("gVRCutscenes", 0);
     CVarSetInteger("gVRPassthrough", 0);
     CVarSetInteger("gVRMotionControls", 1);
+    CVarSetFloat("gVRThirdPersonFwd", 0.0f);
     CVarSetInteger("gVRHaptics", 1);
 }
 static void RowResume(void); // needs the state block below
@@ -126,11 +127,11 @@ struct VrPage {
 static const VrRow kRowsView[] = {
     { "VIEW MODE",   ROW_ENUM,  "gVRViewMode",        1.0f, 0.0f, 4.0f, 1.0f, NULL, kViewModeNames, 2, "HOW YOU SEE THE WORLD. FIRST PERSON IS INSIDE BANJO." },
     { "SWIM FOLLOW", ROW_INT01, "gVRFpSwimFollow",    1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE VIEW TURNS WITH BANJO WHILE YOU SWIM OR FLY." },
-    { "SWIM A DASH", ROW_INT01, "gVRSwimADash",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "UNDERWATER A IS THE FAST DASH AND B THE SLOW PADDLE." },
     { "WORLD SCALE", ROW_FLOAT, "gVRWorldScale",      5.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "GAME UNITS PER METRE. LOWER MAKES THE WORLD BIGGER." },
     { "STEREO",      ROW_FLOAT, "gVRStereo",          0.05f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "DEPTH STRENGTH. LOWER IF THE IMAGE IS HARD TO FUSE." },
-    { "EYE HEIGHT",  ROW_FLOAT, "gVREyeHeight",       0.05f, -1.5f, 1.5f, -1.09f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN THIRD PERSON." },
+    { "EYE HEIGHT",  ROW_FLOAT, "gVREyeHeight",       0.05f, -1.5f, 1.5f, -1.09f, NULL, NULL, -1, "THIRD PERSON EYE HEIGHT. FIRST PERSON HAS ITS OWN." },
     { "CAM DIST",    ROW_FLOAT, "gVRThirdPersonDist", 0.05f, 0.3f, 3.0f, 0.7f, NULL, NULL, -1, "HOW FAR THE CAMERA SITS FROM BANJO. 1 IS STOCK." },
+    { "CAM FORWARD", ROW_FLOAT, "gVRThirdPersonFwd",  0.05f, -1.0f, 3.0f, 0.0f, NULL, NULL, -1, "SLIDES THE THIRD PERSON CAMERA TOWARDS BANJO." },
     { "HUD SIZE",    ROW_FLOAT, "gVRHudScale",        0.05f, 0.1f, 1.5f, 0.35f, NULL, NULL, -1, "HOW MUCH OF YOUR VIEW THE GAME HUD FILLS." },
     { "HUD DIST",    ROW_FLOAT, "gVRHudDist",         0.2f, 0.3f, 20.0f, 2.9f, NULL, NULL, -1, "METRES THE HUD FLOATS IN FRONT OF YOU." },
     { "VR DEFAULTS", ROW_ACTION, NULL, 0, 0, 0, 0, RowDefaults, NULL, -1, "RESTORES EVERY VR SETTING AND THE INVERT LOOK KEYS." },
@@ -206,6 +207,7 @@ static const VrRow kRowsRender[] = {
 static const VrRow kRowsSystem[] = {
     { "MOTION CTRLS",  ROW_INT01,  "gVRMotionControls", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "USE THE VR CONTROLLERS. OFF IS GAMEPAD ONLY." },
     { "HAPTICS",       ROW_INT01,  "gVRHaptics",        1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE CONTROLLERS BUZZ WHEN YOU LAND OR TAKE A HIT." },
+    { "SWIM A DASH",   ROW_INT01,  "gVRSwimADash",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "UNDERWATER A IS THE FAST DASH AND B THE SLOW PADDLE." },
     { "FREE LOOK CAM", ROW_INT01,  "gEnhancements.Camera.FreeLook.Enabled", 1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "RIGHT STICK AIMS THE CAMERA. NO AUTO RECENTRE." },
     { "MOUSE LOOK",    ROW_INT01,  "gVRMouseLook",      1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE DESKTOP MOUSE TURNS THE CAMERA WHEN CAPTURED." },
     { "MOUSE SPEED",   ROW_FLOAT,  "gVRMouseSens",      0.02f, 0.02f, 0.60f, 0.10f, NULL, NULL, -1, "DEGREES PER MOUSE COUNT. HIGHER TURNS FASTER." },

@@ -131,6 +131,10 @@ static bool  sFpFramingOn        = true;    // false while the GAME owns the cam
 static float sFirstPersonScale   = 100.0f;  // First Person world scale (units/m), its OWN knob (like
                                             // Diorama) so it doesn't shrink Third Person.
 static float sFirstPersonEyeHeight = 0.0f;  // First Person eye height (m), its OWN knob
+// Third Person's forward push. There is deliberately NO third-person eye height here: EYE HEIGHT on
+// the VIEW page (gVREyeHeight -> sEyeHeight) already is one and already applies in this branch. A
+// second knob by the same name would be the very trap that produced the report - see below.
+static float sThirdPersonForward = 0.0f;  // metres toward what the camera is looking at
 static float sThirdPersonDist    = 0.0f;    // Third Person camera distance offset (m): + = further behind
                                             // Banjo, - = closer. 0 = stock chase distance.
 static float sCockpitForward     = 0.0f;    // slot 2 unused in Banjo (donor cockpit mode); kept so the
@@ -487,9 +491,29 @@ static void vr_build_eye_matrix(int eye) {
     } else if (sViewMode == 2) {    // Slot 2: no Banjo equivalent (the flying ports' cockpit view). The
         A[3][1] = sEyeHeight + sCockpitHeight; // in-game cycle skips it; the offsets stay wired so the
         A[3][2] = sCockpitForward;  // eye-matrix builder is identical across the ports in this family.
-    } else {                        // Third Person: own eye height. The camera DISTANCE is applied game-side
-        A[3][1] = sEyeHeight;       // in the game's own orbit distance (port_vrCamDistScale) so it moves
-    }                               // camera HORIZONTALLY (closer/further), not up/down along the tilted view.
+    } else {                        // Third Person: standing height, plus the player's own two knobs.
+        // "EYE HEIGHT DOES NOT WORK IN THIRD PERSON" - reported, and the knob is innocent. sEyeHeight
+        // below IS the third-person eye height and always has been. What the report actually found is
+        // that there are TWO settings wearing that name: EYE HEIGHT on the VIEW page, which is this
+        // one, and the FIRST PERSON page's own eye height, which is wired into the branch above and
+        // is dead everywhere else. Adjust the second one while in third person and nothing moves,
+        // exactly as described. The menus now say which is which rather than growing a third knob.
+        //
+        // The FORWARD push is the part that genuinely did not exist here. It is read RAW rather than
+        // through the eased pair the branch above uses: that easing exists to fade First Person's
+        // offsets out while the GAME frames a shot, and it is driven by the first-person drive tick,
+        // which is dead in third person - so borrowing it would fade this to zero and reproduce the
+        // same class of bug by a longer route.
+        //
+        // Forward is along the camera's own view axis, NOT the headset's. Following the head would
+        // mean leaning forward walks the camera into the world, which is both a comfort problem and
+        // a way to end up inside the scenery. This keeps the offset stable while you look around.
+        // The camera DISTANCE is still applied game-side in the game's own orbit distance
+        // (port_vrCamDistScale) so it moves the camera HORIZONTALLY, not up and down along the
+        // tilted view; this pair is a fine adjustment on top of that.
+        A[3][1] = sEyeHeight;
+        A[3][2] = sThirdPersonForward;
+    }
 
     // Clip planes: effectively INFINITE draw distance. The 2 km base far plane is ten times the span
     // of the biggest Banjo world at life size, so no in-game geometry ever hits it; the near plane sits
@@ -1720,6 +1744,7 @@ static void vr_sync_tunables(void) {
     // reprojection reads as a doubled / cross-eyed image for a second. The ease only runs across live
     // slider changes mid-flight.
     sFirstPersonEyeHeight = CVarGetFloat("gVRFirstPersonEyeHeight", sFirstPersonEyeHeight);
+    sThirdPersonForward   = CVarGetFloat("gVRThirdPersonFwd",       sThirdPersonForward);
     {
         // While the GAME owns the camera - a Bottles conversation, a switch reveal, any scripted
         // shot - BOTH First Person framing offsets fade to zero, because that shot was composed by
