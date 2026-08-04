@@ -574,6 +574,15 @@ static bool VrBs_IsDeath(s32 st) {
            st == BS_64_CROC_DIE || st == BS_6D_WALRUS_DIE || st == BS_8A_BEE_DIE;
 }
 
+// The moves that turn the BODY OVER on purpose, and so drive the view themselves off their own
+// animation clock rather than being an attitude the fall and the vertical clamp get to argue with.
+// One list, because the tilt code asks the same question twice - which envelope is running, and
+// which arm computes the angle - and the forward roll was missing from BOTH, so it turned the view
+// by nothing at all. Two enumerations of one idea is how that happens.
+static bool VrBs_IsBodyTurn(s32 st) {
+    return st == BS_12_BFLIP || st == BS_F_BBUSTER || st == BS_31_ROLL;
+}
+
 // Face Banjo where the player is LOOKING: body yaw = view yaw (base + head) flipped through the
 // model's 180-degree camera convention. The state machine calls this as an aim-driven state
 // begins (barge, claw, peck, eggs), so an attack launched from inside his head goes where the
@@ -1559,11 +1568,11 @@ static float VrFlipAngleRad(void) {
     // collapsed a tilt the comment below promises will HOLD and swung the view about 45 degrees
     // while the player was dead and holding no stick. So the reset asks which of these shapes is
     // running, and one death is one envelope however many states the game spends it in.
-    const int fam = VrBs_IsDeath(st)                            ? 1
-                    : (st == BS_72_SPLAT)                       ? 2
-                    : VrBs_IsHurt(st)                           ? 3
-                    : (st == BS_12_BFLIP || st == BS_F_BBUSTER) ? 4
-                                                                : 0;
+    const int fam = VrBs_IsDeath(st)      ? 1
+                    : (st == BS_72_SPLAT) ? 2
+                    : VrBs_IsHurt(st)     ? 3
+                    : VrBs_IsBodyTurn(st) ? 4
+                                          : 0;
     if (fam != sPrevFam) {
         sEnvT = 0.0f; // a new event starts its envelope at the beginning, never part way through
         sPrevFam = fam;
@@ -1634,9 +1643,9 @@ static float VrFlipAngleRad(void) {
             p = 1.0f;
         }
         deg = kTiltHurtDeg * sinf(kPi * p);
-    } else if (st == BS_12_BFLIP || st == BS_F_BBUSTER) {
+    } else if (VrBs_IsBodyTurn(st)) {
         ownsAngle = true;
-        goesOverTop = (st == BS_12_BFLIP);
+        goesOverTop = (st == BS_12_BFLIP || st == BS_31_ROLL);
         void* anim = baanim_getAnimCtrlPtr();
         if (anim != NULL) {
             const f32 t = anctrl_getAnimTimer(anim);
@@ -1685,6 +1694,40 @@ static float VrFlipAngleRad(void) {
                         p = 1.0f;
                     }
                     deg = -360.0f * p; // backward
+                }
+            } else if (st == BS_31_ROLL) {
+                // FORWARD ROLL (B at a run) - one full FORWARD somersault, nose down. Read off the
+                // shipped animation rather than guessed from the state's name: the torso bone in
+                // ASSET_4F_BSTWIRL sweeps its PITCH curve through +360 degrees over the move (0,
+                // 61, 107, 134, 169, 247, 290, then 377 at frame 60 settling to exactly 360), in
+                // the same sign the flip jump's own asset uses for its -360 backward turn and the
+                // same sign the prone poses use - the belly slide and the underwater swim both park
+                // that curve near +90, nose down.
+                //
+                // AND IT DOES NOT SPIN. The asset carries no yaw curve on the torso at all, and
+                // bstwirl_init pins his facing and simply drives him forward. So this pitches and
+                // only pitches. An uncommanded yaw spin is the one thing a VR camera must never do
+                // to somebody, and the name "twirl" was the only thing here that ever suggested it.
+                //
+                // The clock ends at 0.8011 rather than 1.0 because that is the game's own end of
+                // the move: bstwirl_update watches for exactly that mark, then stretches the
+                // duration to 2.5 s, drops the hitbox and spends the rest standing him back up. The
+                // revolution is complete there, so past it the target is 0 and the release rule
+                // folds the finished turn away with no travel, same as the flip jump. Jumping out
+                // of a roll with A releases mid-turn and that rule finishes it the way the body was
+                // already going.
+                const float kTurnEnd = 0.8011f;
+                if (asset != ASSET_4F_ANIM_BSTWIRL || t > kTurnEnd) {
+                    deg = 0.0f;
+                } else {
+                    float p = t / kTurnEnd;
+                    if (p < 0.0f) {
+                        p = 0.0f;
+                    }
+                    if (p > 1.0f) {
+                        p = 1.0f;
+                    }
+                    deg = 360.0f * p; // forward
                 }
             } else if (asset == ASSET_1D_ANIM_BSBBUSTER) {
                 // BEAK BUSTER (A then Z) - a forward tuck into a beak-down plunge, then back up.

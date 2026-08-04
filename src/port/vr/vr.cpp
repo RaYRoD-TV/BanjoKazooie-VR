@@ -1635,7 +1635,19 @@ static void vr_flip_ease(void) {
         const float turns = floorf((sFlipRad - target) / kTwoPi + 0.5f);
         sFlipRad -= kTwoPi * turns;
     }
-    sPrevFlipTargetRad = sFlipTargetRad;
+    // Remember the last NON-ZERO target, not simply the last one. A move that ends hands this a
+    // zero for a tick or two before the next one starts, and storing that zero made the fold guard
+    // above compare the incoming move against nothing - so it could not see the jump it exists to
+    // catch, and the eye took the long way round after all.
+    //
+    // Reachable, and found before anyone hit it: roll, hold Z, tap A. The roll ends its turn a full
+    // revolution nose-down, the jump it becomes is the FLIP jump (bs_getTypeOfJump returns the flip
+    // while Z is held), and the flip's very first target is exactly zero - which trips the release
+    // branch and, with a plain assignment here, wiped the reference the next tick needed. About 280
+    // degrees of uncommanded roll, from two moves that are meant to chain.
+    if (sFlipTargetRad != 0.0f) {
+        sPrevFlipTargetRad = sFlipTargetRad;
+    }
     sFlipRad += (target - sFlipRad) * rate;
     if (fabsf(target - sFlipRad) < 0.0008f) {
         // A completed revolution IS upright, so fold it back to zero: same rotation, and the next
