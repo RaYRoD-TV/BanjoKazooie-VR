@@ -550,6 +550,13 @@ static bool VrFp_IsStrideState(s32 st) {
            st == BS_3B_CARRY_WALK;
 }
 
+// Swimming ON TOP of the water, where the waterline runs through Banjo and therefore through the
+// eye. The dive states are deliberately NOT here: under the surface there is no line to stay above
+// and the full stroke is what makes it read as swimming.
+static bool VrFp_IsSurfaceSwim(s32 st) {
+    return st == BS_2D_SWIM_IDLE || st == BS_2E_SWIM;
+}
+
 // ---- what just happened to the body -------------------------------------------
 //
 // Taking a hit and dying, in every skin Banjo can be wearing. Each transformation runs its own ow
@@ -577,7 +584,20 @@ extern "C" void port_vrFpFaceViewYaw(void) {
         return;
     }
     const float viewYaw = sYaw - vr_head_yaw_rad() * 57.29577951308232f;
-    const float bodyYaw = VrWrapDeg(viewYaw - 180.0f) + 180.0f;
+    // THE 180 IS THE WHOLE POINT and it went missing once, so it is spelled out here. The model's
+    // camera convention has the body facing the OPPOSITE way to the view angle, so turning a view
+    // yaw into a body yaw means adding half a turn. Wrapped signed first so a free-running sYaw of
+    // several thousand degrees still lands correctly, then lifted back into the game's 0..360.
+    //
+    // A tidy-up once rewrote this as `VrWrapDeg(viewYaw - 180) + 180`, which LOOKS like the same
+    // expression and is in fact the identity: it returns viewYaw itself. Banjo then faced exactly
+    // backwards everywhere this is called, which is every aim state - so in first person he swam
+    // away from the stick and punched over his shoulder, both reported from the field. Two symptoms,
+    // one sign. If this is ever touched again, check it against a table of angles and not by eye.
+    float bodyYaw = VrWrapDeg(viewYaw + 180.0f);
+    if (bodyYaw < 0.0f) {
+        bodyYaw += 360.0f;
+    }
     yaw_set(bodyYaw);
     yaw_setIdeal(bodyYaw);
 }
@@ -792,6 +812,17 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
             // Ordered before the clamp below on purpose: that clamp scales the whole vector by its
             // own length, so a Y removed afterwards would still have decided how far X and Z moved.
             if (CVarGetInteger("gVRFpViewBob", 0) == 0 && VrFp_IsStrideState(bs_getState())) {
+                target[1] = 0.0f;
+            }
+            // AT THE SURFACE, YOUR HEAD STAYS ABOVE IT. This one is not a preference and is not
+            // gated on View Bob. Banjo's surface swim animation rocks his whole body through the
+            // waterline - fine to watch from behind him, and from inside his head it ducked the
+            // eye under the water on every stroke and simply held it there while swimming forward.
+            // The reporter's words were that you never feel like you are swimming on the surface,
+            // because the view is always beneath it. Losing the vertical of the stroke costs the
+            // motion almost nothing: the roll and the surge forward are what read as swimming, and
+            // both are still here.
+            if (VrFp_IsSurfaceSwim(bs_getState())) {
                 target[1] = 0.0f;
             }
             // CLAMP THE MAGNITUDE, direction kept. A full crouch measures about 57 units (47 down,
