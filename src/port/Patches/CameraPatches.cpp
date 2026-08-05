@@ -174,3 +174,52 @@ void RegisterCameraPatches_Init() {
 
 static RegisterShipInitFunc cutsceneAspectInitFunc(RegisterCutsceneAspect, { CVAR_CUTSCENE_ASPECT });
 static RegisterShipInitFunc staticCamInitFunc(RegisterCameraPatches_Init);
+
+// ---- VR jitter hunt: the camera livelog -------------------------------------------------------
+//
+// One line per game tick from the dynamic camera, BK_VR_LIVELOG only, for the hub-room judder
+// report. The line separates four suspects at once: the collision revert ping-pong (|d|
+// flip-flopping sign against the previous tick with rev pulses), the occlusion teleport loop
+// (reloc pulses every ~5 ticks), camera state churn (st changing), and none-of-the-above (a
+// smooth camera while the view still judders, which acquits this camera entirely and points at
+// the render side). The revert is invisible from outside - it snaps the camera back to its
+// tick-start position and leaves the position spring's velocity armed, unlike the occlusion
+// relocation which clears it - so the two producers mark themselves and this prints the tally.
+// The first line after boot compares against zeroed statics; ignore it.
+static int sCamDbgRevert = 0;
+static int sCamDbgReloc = 0;
+
+extern "C" void port_camDbgMarkRevert(void) {
+    sCamDbgRevert++;
+}
+
+extern "C" void port_camDbgMarkReloc(void) {
+    sCamDbgReloc++;
+}
+
+extern "C" void port_camDbgTick(int32_t state, float position[3]) {
+    static int sEnabled = -1;
+    if (sEnabled < 0) {
+        sEnabled = getenv("BK_VR_LIVELOG") != NULL ? 1 : 0;
+    }
+    if (sEnabled == 0) {
+        sCamDbgRevert = sCamDbgReloc = 0;
+        return;
+    }
+    static float sPrevPos[3] = { 0 };
+    static float sPrevDelta[3] = { 0 };
+    const float d[3] = { position[0] - sPrevPos[0], position[1] - sPrevPos[1],
+                         position[2] - sPrevPos[2] };
+    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const float dot = d[0] * sPrevDelta[0] + d[1] * sPrevDelta[1] + d[2] * sPrevDelta[2];
+    // Quiet while the camera is genuinely still and nothing fired, so a livelog session in a calm
+    // room does not scroll; anything moving, reversing or teleporting prints.
+    if (len > 0.01f || sCamDbgRevert != 0 || sCamDbgReloc != 0) {
+        printf("[CAM] st=%02X |d|=%7.2f dot=%c rev=%d reloc=%d pos=(%.0f %.0f %.0f)\n",
+               (unsigned)state, len, dot < 0.0f ? '-' : '+', sCamDbgRevert, sCamDbgReloc,
+               position[0], position[1], position[2]);
+    }
+    sPrevPos[0] = position[0]; sPrevPos[1] = position[1]; sPrevPos[2] = position[2];
+    sPrevDelta[0] = d[0]; sPrevDelta[1] = d[1]; sPrevDelta[2] = d[2];
+    sCamDbgRevert = sCamDbgReloc = 0;
+}

@@ -21,6 +21,9 @@ void func_802C0394(f32 src[3]){
     ml_vec3f_copy(cameraStateB.D_8037DB90, src);
 }
 
+// [port] VR jitter hunt (CameraPatches.cpp): counts the collision revert for the camera livelog.
+extern void port_camDbgMarkRevert(void);
+
 void func_802C03BC(void) {
     f32 sp2C[3];
     f32 sp20[3];
@@ -36,6 +39,11 @@ void func_802C03BC(void) {
     sp1C = sp20[0]*sp2C[0] + sp20[1]*sp2C[1] + sp20[2]*sp2C[2];
     if (sp1C < 0.0f || D_8037DB9C < 0.0f) {
         ncDynamicCamera_setPosition(cameraStateB.D_8037DB84);
+        // [port] VR jitter hunt: this revert snaps the camera back to its tick-start position and,
+        // unlike the occlusion relocation (func_802BC640), leaves the position spring's velocity
+        // armed - so in a tight room the spring can push, get deflected, revert, and push again
+        // every tick. Counted so the camera livelog can see the ping-pong without guessing.
+        port_camDbgMarkRevert();
     }
      D_8037DB9C = sp1C;
 }

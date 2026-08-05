@@ -246,6 +246,13 @@ void gcdialog_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx){
     // is the only element in the whole dialogue still sitting in the world, and its text floats out
     // of it. The second box was never affected because the first box's portrait sprite establishes
     // the plane on its way past. Costs two matrices and draws nothing.
+    //
+    // Only when a box will actually draw. Unconditional, this flipped the renderer's HUD state on
+    // EVERY frame, dialogue or none, which moved when the plane gets established for everything
+    // drawn after this call relative to the build people had been playing. No dialogue, no claim.
+    if (g_Dialog.zoombox[0] == NULL && g_Dialog.zoombox[1] == NULL) {
+        return;
+    }
     viewport_beginHudPlane(gfx, mtx);
     for(i = 0; i<2; i++){
         gczoombox_draw(g_Dialog.zoombox[i], gfx, mtx, vtx);

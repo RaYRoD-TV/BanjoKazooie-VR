@@ -12,6 +12,9 @@ extern void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]);
 // Hooking the orbit-distance getter instead only reached the couple of camera states that consult
 // it, so the knob barely moved - this is downstream of every state and of collision.
 extern void port_vrCamDist_apply(f32 position[3]);
+// [port] VR jitter hunt (CameraPatches.cpp): per-tick camera livelog, BK_VR_LIVELOG only.
+extern void port_camDbgMarkReloc(void);
+extern void port_camDbgTick(s32 state, f32 position[3]);
 
 
 extern bool func_80245314(f32[3], f32[3], f32, f32, u32);
@@ -136,6 +139,10 @@ bool func_802BC640(f32 arg0[3], f32 arg1[3], f32 arg2, s32 arg3) {
             ncDynamicCamera_setPosition(sp78);
             ml_vec3f_clear(D_8037D9C8);
             ml_vec3f_clear(D_8037D9E0);
+            // [port] VR jitter hunt: an occlusion relocation is a TELEPORT of a few hundred units,
+            // which sits under the frame interpolator's cut threshold and renders as a fast lurch.
+            // A camera stuck behind a doorway wall repeats this every ~5 ticks. Counted for the log.
+            port_camDbgMarkReloc();
             return true;
         }
     }
@@ -409,6 +416,13 @@ void ncDynamicCamera_update(void){
     port_vrFirstPerson_override(position, rotation);
     viewport_setPosition_vec3f(position);
     viewport_setRotation_vec3f(rotation);
+    // [port] VR jitter hunt: one line per tick, BK_VR_LIVELOG only. Reads the camera the game
+    // ACTUALLY produced this tick (before the VR overrides above run for First Person, position
+    // still holds their output - what matters here is the tick-to-tick delta, not the space).
+    // |d| flip-flopping with dot<0 and rev pulses = the collision revert ping-pong; occ climbing
+    // to 5 with reloc pulses = the occlusion teleport loop; smooth |d| while the view still
+    // judders = the fault is not this camera at all. First line after boot prints garbage; skip it.
+    port_camDbgTick(dynamicCameraState, position);
 }
 
 int ncDynamicCamera_getState(void){
