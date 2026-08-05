@@ -1926,6 +1926,15 @@ extern "C" void VrGame_SyncFrame(void) {
     sVrTick++;              // freshness clock for the sky-pass Mtx registry
     VrGame_SampleMouse();   // one mouse sample per tick; look paths consume it once
     VrGame_PollHaptics();   // landing, damage and death, felt in the hands
+    // DIORAMA anchoring: hand vr.cpp how far the camera currently is from what it is looking at,
+    // so the tabletop can be anchored on BANJO instead of on the camera that orbits him.
+    {
+        f32 cam[3], focus[3];
+        ncDynamicCamera_getPosition(cam);
+        func_802C0490(focus);
+        const float dx = cam[0] - focus[0], dy = cam[1] - focus[1], dz = cam[2] - focus[2];
+        vr_set_focus_distance(sqrtf(dx * dx + dy * dy + dz * dz));
+    }
     vr_set_hud_menu_mode(getGameMode() == GAME_MODE_4_PAUSED || port_vrNativeMenu_isOpen());
     vr_set_flip_angle(VrFlipAngleRad()); // view tilt target; vr.cpp eases it at the headset's rate
     // Whether First Person is really driving the camera. The same drive-tick freshness that decides

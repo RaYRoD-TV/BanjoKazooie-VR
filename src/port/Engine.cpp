@@ -1590,6 +1590,7 @@ std::vector<std::future<void>> sMapBuildFutures;
 // subframes/paceFps is exactly the game time one task represents.
 long long sLastSubFrameNs = 0;
 long long sPassBudgetNs = 0;
+long long sTickWallNs = 1000000000LL / 30; // one GAME tick of wall time - the interpolation denominator
 } // namespace
 
 void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements,
@@ -1737,7 +1738,7 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             // interpolate to that instant instead of the pre-baked slot.
             static std::unordered_map<Mtx*, MtxF> sVrLiveMap;
             {
-                double frac = sPassBudgetNs > 0 ? (double)NsSince(passT0) / (double)sPassBudgetNs : 1.0;
+                double frac = sTickWallNs > 0 ? (double)NsSince(passT0) / (double)sTickWallNs : 1.0;
                 if (frac > 1.0) {
                     frac = 1.0;
                 }
@@ -1899,6 +1900,7 @@ namespace {
 struct SubframePacing {
     int subframes; // renders to emit this tick (>= 1)
     int fps;       // target present fps for this tick
+    int logicFps;  // game ticks per second - ONE tick of game time is 1/logicFps of wall time
 };
 
 SubframePacing ComputeSubframePacing() {
@@ -1973,7 +1975,7 @@ SubframePacing ComputeSubframePacing() {
             subframesPerTick = 1;
             sSubframeCarry = 0;
         }
-        return { subframesPerTick, target_fps };
+        return { subframesPerTick, target_fps, effective_logic_fps };
     }
 
     // Replay modes never interpolate: one render per tick, held to viPerTick/60 by the floor.
@@ -1987,7 +1989,7 @@ SubframePacing ComputeSubframePacing() {
     // constant. Otherwise it varies per tick to keep wall == game.
     int fps = subframesPerTick * effective_logic_fps;
 
-    return { subframesPerTick, fps };
+    return { subframesPerTick, fps, effective_logic_fps };
 }
 } // namespace
 
@@ -2011,6 +2013,7 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
     const SubframePacing pacing = ComputeSubframePacing();
     const int subframesPerTick = pacing.subframes;
     const int fps = pacing.fps;
+    const int logicFps = pacing.logicFps;
 
     // Emit exactly subframesPerTick sub-frames with t values evenly spaced.
     // No accumulator carry: each tick is independent so VI changes don't
@@ -2036,7 +2039,29 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
         activeFrames++;
     }
 
+    // TWO DIFFERENT CLOCKS, and conflating them is what left the judder behind.
+    //
+    // sPassBudgetNs is how much wall time THIS TICK'S SUB-FRAMES may consume: sub-frames divided
+    // by the present rate. The loop above uses it to decide whether another sub-frame still fits.
+    // At 72 Hz the carry hands out 2, 2, 3, so this is 27.8 ms or 41.7 ms - and it must be, or the
+    // third sub-frame of a three-frame tick gets judged not to fit and the rate falls back to 60.
+    //
+    // sTickWallNs is one GAME TICK of wall time, always 1/30 s, and it is the denominator the
+    // interpolation fraction is measured against. Game logic advances on its own steady 30 Hz
+    // clock (the VI ticker thread), so "how far through the current tick are we" is elapsed time
+    // over 1/30 s and nothing else.
+    //
+    // These were the same number only because fps used to be FORCED to sub-frames * 30. Letting
+    // the headset set its own rate broke that identity and the fraction inherited the wrong
+    // denominator: the same 33.3 ms of game motion was played out over 28 ms, 28 ms, then 42 ms,
+    // repeating - apparent speed alternating about 1.2x and 0.8x roughly five times a second.
+    // Every frame still landed on a real vblank and the headset still reported a rock steady 72,
+    // which is exactly how it came back from the field: the rate is right and the motion still is
+    // not smooth. Rotation was never affected, because the compositor reprojects head pose from
+    // the pose submitted with the frame; the GAME camera is baked into the eye matrix and rides
+    // this fraction instead. That is why it reads as camera judder specifically.
     sPassBudgetNs = 1000000000LL * subframesPerTick / fps;
+    sTickWallNs = logicFps > 0 ? 1000000000LL / logicFps : 1000000000LL / 30;
 
     if (wnd != nullptr) {
         wnd->SetTargetFps(fps);

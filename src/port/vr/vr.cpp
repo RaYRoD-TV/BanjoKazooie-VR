@@ -146,6 +146,11 @@ static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m
                                             // of you rather than a world you happen to be huge in.
 static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front of you (Diorama)
 static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
+// How far the game camera sits from what it is looking at, game units, pushed per tick. The
+// diorama anchors on the FOCUS rather than the camera: the camera is the thing that orbits, and
+// anchoring on it left Banjo - the one thing the tabletop is FOR - sliding around the room
+// whenever the chase camera pushed in or pulled out. 0 means the game has not told us yet.
+static float sFocusDistUnits     = 0.0f;
 static float sFlipRad            = 0.0f;    // first person flip cam: eye-view pitch, radians (0 = upright)
 static float sFlipTargetRad      = 0.0f;    // ...and where it is heading, set per game tick
 static float sPrevFlipTargetRad  = 0.0f;    // last frame's target, to spot a NEW move taking over
@@ -289,6 +294,10 @@ extern "C" bool vr_sky_remap_active(void) { return false; }
 // dome is at infinity).
 static float sSkyCamRot[4][4] = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, { 0, 0, 0, 1 } };
 static bool  sSkyCamValid = false;
+extern "C" void vr_set_focus_distance(float gameUnits) {
+    sFocusDistUnits = (gameUnits > 0.0f) ? gameUnits : 0.0f;
+}
+
 extern "C" void vr_set_sky_camera(const float eye[3], const float at[3], const float up[3]) {
     // Build the world->camera rotation the same way guLookAt does (row-vector: world dir * R = camera dir).
     float fx = at[0] - eye[0], fy = at[1] - eye[1], fz = at[2] - eye[2];
@@ -484,7 +493,12 @@ static void vr_build_eye_matrix(int eye) {
     A[0][0] = invS; A[1][1] = invS; A[2][2] = invS; A[3][3] = 1.0f;
     if (sViewMode == 3) {           // Diorama: shrunk tabletop placed in front of you
         A[3][1] = sDioramaHeight;
-        A[3][2] = -sDioramaDist;
+        // Anchor on the FOCUS, not the camera. In camera space whatever the camera is looking at
+        // lies straight ahead down -Z at the focus distance, so pushing the anchor forward by that
+        // distance puts BANJO at sDioramaDist in front of you and keeps him there while the camera
+        // orbits him. This needs no rotation convention at all - only the scalar distance - which
+        // is why it is done here rather than by transforming a world point into camera space.
+        A[3][2] = -sDioramaDist + sFocusDistUnits * invS;
     } else if (sViewMode == 1) {    // First Person: own eye height + push the eye toward Banjo
         A[3][1] = sFPEyeHeightCur;  // both eased, and both fade out while the GAME frames the shot
         A[3][2] = sFPForwardCur;    // eased toward the cockpit (see vr_begin_frame)
@@ -735,7 +749,12 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
     // a verification seam that cannot see a knob is how "it does nothing" goes unproven for rounds.
     if (sViewMode == 3) {
         A[3][1] = sDioramaHeight;
-        A[3][2] = -sDioramaDist;
+        // Anchor on the FOCUS, not the camera. In camera space whatever the camera is looking at
+        // lies straight ahead down -Z at the focus distance, so pushing the anchor forward by that
+        // distance puts BANJO at sDioramaDist in front of you and keeps him there while the camera
+        // orbits him. This needs no rotation convention at all - only the scalar distance - which
+        // is why it is done here rather than by transforming a world point into camera space.
+        A[3][2] = -sDioramaDist + sFocusDistUnits * invS;
     } else if (sViewMode == 1) {
         A[3][1] = sFPEyeHeightCur; // the eased pair, exactly as the live builder uses them
         A[3][2] = sFPForwardCur;

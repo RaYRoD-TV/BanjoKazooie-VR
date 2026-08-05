@@ -81,6 +81,11 @@ bool vr_sky_remap_active(void);
 // carries the SHIP's orientation as well as the head's - it sweeps as the ship turns and holds still as you
 // look around, anchored on yaw and pitch.
 void vr_set_sky_camera(const float eye[3], const float at[3], const float up[3]);
+// DIORAMA anchoring: how far the game camera currently sits from what it is looking at, in game
+// units. The tabletop is anchored on the FOCUS (Banjo) rather than the camera, so he stays put on
+// the table while the chase camera orbits, pushes in and pulls out around him. Pushed per tick;
+// 0 means unknown and the anchor falls back to the camera.
+void vr_set_focus_distance(float gameUnits);
 
 // LIVE render path: the interpreter renders the scene into its managed off-screen fb, then these blit
 // that fb's color texture into the OpenXR swapchain image (eye projection layer / head-locked panel).
