@@ -38,6 +38,7 @@ void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
 int bsbswim_inSet(int state); // nonzero for the UNDERWATER (dive) state family - surface paddling excluded
 bool func_802A73BC(void); // at/near the water SURFACE - the swim state machine's own boundary predicate
+s32 balookat_getState(void); // nonzero while the game aims Banjo at something (drone/lookat shots)
 s32  func_80294524(void); // nonzero while the game HOLDS you at the surface - the state where A jumps out
 int bsbfly_inSet(int state); // nonzero in the FLIGHT state family - flying steers like swimming does
 f32 floor_getCurrentFloorYPosition(void); // the physics floor under the player - the FP eye's hard deck
@@ -1168,6 +1169,29 @@ extern "C" void port_vrFirstPerson_override(f32 position[3], f32 rotation[3]) {
                 port_vrFpFaceViewYaw();
             }
         }
+        // ON THE SURFACE the same coupling runs in ONE direction only: body follows view, never
+        // view follows body. Surface swimming steers like walking - the stick picks a direction
+        // RELATIVE TO THE CAMERA and Banjo turns himself to face it (swim.c runs the stick-zone
+        // system, not the dive's turn-rate-on-X) - so the view is the reference frame there, and a
+        // view that followed the body would be chasing its own tail. That is why the follow above
+        // gates on genuinely-submerged, and why shallow surface-only water (Gobi's pools, reported)
+        // had no coupling at all: look somewhere, stroke, and Banjo set off wherever he last
+        // pointed. Now a centred stick at the surface turns HIM to face where you are looking, so
+        // the next stroke goes there. Zero view motion - the comfort law is untouched.
+        //
+        // Idle only (BS_2E means the stick is in a zone, and then the stick system owns his yaw),
+        // fully centred stick on BOTH axes (X alone is the dive's steer test; at the surface a
+        // diagonal push means a direction, and facing the view would fight it), never while the
+        // game aims him at something (balookat), and never while struck.
+        if (sPrevYawValid && BsStateIsLive() && bs_getState() == BS_2D_SWIM_IDLE &&
+            player_inWater() && !struck && balookat_getState() == 0 &&
+            CVarGetInteger("gVRFpSwimFollow", 1) != 0) {
+            f32 mv[2];
+            controller_getJoystick(0, mv);
+            if (fabsf(mv[0]) < 0.05f && fabsf(mv[1]) < 0.05f) {
+                port_vrFpFaceViewYaw();
+            }
+        }
         // Re-read AFTER the body may have been turned above, or the next tick would measure our own
         // write as a turn Banjo made and hand the view a step it never earned.
         player_getRotation(pr);
@@ -1352,19 +1376,25 @@ static void MergePadSources(OSContPad* pad) {
         }
         if (sLog == 1) {
             static s32 sPrevMode = -1, sPrevBs = -1, sPrevCam = -1;
-            static int sPrevLive = -1, sPrevWater = -1, sPrevFraming = -1;
+            static int sPrevLive = -1, sPrevWater = -1, sPrevFraming = -1, sPrevSurf = -1;
             const s32 m = getGameMode(), b = bs_getState(), cam = ncDynamicCamera_getState();
             const int live = BsStateIsLive() ? 1 : 0, water = player_inWater() ? 1 : 0;
             const int framing = port_vrFirstPerson_hidePlayer();
+            // surf packs the two water-boundary predicates: bit 0 = near the surface band
+            // (func_802A73BC, the follow's stand-down), bit 1 = held at the surface where A jumps
+            // (func_80294524). "The swim follow does not work in THIS pool" is answered by whether
+            // a swim there ever shows surf=0 - shallow water never does, and the follow is
+            // designed to stand down at the surface because surface steering is camera-relative.
+            const int surf = (func_802A73BC() ? 1 : 0) | (func_80294524() ? 2 : 0);
             if (m != sPrevMode || b != sPrevBs || live != sPrevLive || water != sPrevWater || cam != sPrevCam ||
-                framing != sPrevFraming) {
+                framing != sPrevFraming || surf != sPrevSurf) {
                 // cam = which camera owns the shot, fpFraming = whether our First Person offsets apply.
                 // A scripted shot shows as a cam change with fpFraming dropping to 0.
-                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d cam=%d fpFraming=%d\n", (int)m,
-                       (unsigned)b, live, water, (int)cam, framing);
+                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d surf=%d cam=%d fpFraming=%d\n",
+                       (int)m, (unsigned)b, live, water, surf, (int)cam, framing);
                 fflush(stdout); // survives a killed process - an observability print that can vanish is no seam
                 sPrevMode = m; sPrevBs = b; sPrevLive = live; sPrevWater = water; sPrevCam = cam;
-                sPrevFraming = framing;
+                sPrevFraming = framing; sPrevSurf = surf;
             }
         }
     }
