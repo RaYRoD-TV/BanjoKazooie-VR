@@ -249,6 +249,17 @@ void player_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
         // player-position offsets and the world touches the real bear again.
         extern void baModel_clearRefPoints(void);
         baModel_clearRefPoints();
+        // Clearing the points is not enough for the PICKUP PROBES. baMarker_update places its two
+        // collection spheres via baModel_80292284, which trusts the marker's "draw is current" bit
+        // and then applies per-state offsets calibrated for LIVE ref points - the wading boots pull
+        // probe 1 DOWN 50 units to meet a body the stilts hold high. With the draw skipped the bit
+        // stays stale-true, the cleared points read zero, and both probes collapse to the FEET, one
+        // of them 50 units under the floor - so nothing placed at body height, which is every note
+        // over the wading water in Bubblegloop and Gobi, could be collected in first person while
+        // the boots were on. Clearing the bit routes baModel_80292284 to the game's own not-drawn
+        // fallback (feet+75 and feet+33), the same positions vanilla itself uses between draws.
+        // Third person is untouched: its draw runs and re-arms the bit every frame.
+        baMarker_get()->unk14_21 = 0;
         return;
     }
     if (D_8037BFB8) {
