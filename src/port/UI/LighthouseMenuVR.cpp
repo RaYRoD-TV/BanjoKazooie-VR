@@ -352,6 +352,14 @@ void LighthouseMenu::AddMenuVR() {
             "A small stride bob while walking and a dip on landing, driven by Banjo's real motion. "
             "Centimetres, not camera waggle - off by default; turn on if you like the extra life."));
 
+    AddWidget(path, "First Person Roll Cam", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRFpRollCam")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "The forward roll (B at a run) turns your view over with Banjo, read from his real "
+            "animation. Turn off to keep the view level through the move - everything else about "
+            "the roll stays the same."));
+
     AddWidget(path, "Stereo Cutscenes", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRCutscenes")
         .RaceDisable(false)

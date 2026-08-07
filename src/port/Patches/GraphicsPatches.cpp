@@ -120,6 +120,16 @@ int port_spriteSizeCulled(float depth, float size, float baseThreshold, int disa
 }
 
 int port_shouldDisableLOD(void) {
+    // Field-report A/B seam (BK_DIAG_SETLOD=<0|1>): force the answer for one run, bypassing the
+    // boot-time CVar cache, so a far-LOD hypothesis can be tested without touching the config.
+    static int sDiagForce = -2;
+    if (sDiagForce == -2) {
+        const char* e = getenv("BK_DIAG_SETLOD");
+        sDiagForce = (e != NULL) ? atoi(e) : -1;
+    }
+    if (sDiagForce >= 0) {
+        return sDiagForce;
+    }
     return sDisableLOD;
 }
 }

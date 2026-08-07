@@ -94,6 +94,17 @@ enum map_e getDefaultBootMap(void){
     if (getenv("BK_VR_EYEDUMP") != NULL) {
         return MAP_1_SM_SPIRAL_MOUNTAIN;
     }
+    // [port] Field-report repro (BK_DIAG_BOOT=<mapid>): boot straight into the named map, so a
+    // reported scene is reachable headless without driving menus or standing at it in a save.
+    {
+        const char* d = getenv("BK_DIAG_BOOT");
+        if (d != NULL) {
+            int m = 0;
+            if (sscanf(d, "%i", &m) == 1 && m > 0) {
+                return (enum map_e)m;
+            }
+        }
+    }
     seq = port_getBootSequence();
     if (seq == 2) // BOOTSEQUENCE_FILESELECT
         return MAP_91_FILE_SELECT;

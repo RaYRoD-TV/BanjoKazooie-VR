@@ -33,6 +33,13 @@ enum map_e gsworld_getMap(void);
 // for a hack that reassigns a map.
 enum level_e map_getLevel(enum map_e map);
 s32 gsworld_getEnableDraw(void);
+// Field-report repro (BK_DIAG_WARP / BK_DIAG_SPAWN): the dev menu's own warp entry point, the
+// player's ground position, and the game's deferred spawn queue - the same calls game code makes.
+void func_8031D04C(enum map_e map, s32 exit_id);
+void player_getPosition(f32 dst[3]);
+void __spawnQueue_add_4(void* fn, uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3);
+void* spawnQueue_actor_f32(s32 actor_id, uintptr_t x, uintptr_t y, uintptr_t z);
+void gctransition_8030BEA4(s32 idx); // start a transition by table index (1 = falling jiggies in)
 void func_8028E9C4(s32 mode, f32 out[3]); // mode 5 = player EYE position (foot pos + per-transform head height)
 void player_getRotation(f32 dst[3]);
 bool player_inWater(void); // swimming or diving - the swim-follow gate
@@ -608,6 +615,19 @@ static bool VrBs_IsDeath(s32 st) {
 // by nothing at all. Two enumerations of one idea is how that happens.
 static bool VrBs_IsBodyTurn(s32 st) {
     return st == BS_12_BFLIP || st == BS_F_BBUSTER || st == BS_31_ROLL;
+}
+
+// The body-turn set the tilt actually follows this tick. The forward roll carries its own player
+// toggle (field request): a full forward somersault is the strongest thing the immersive cam ever
+// does, and some players want the move without the view turning over. OFF is exactly the
+// pre-roll-cam behavior for BS_31_ROLL alone; the flip jump and beak buster keep their arms. Both
+// places that ask the body-turn question go through here, so the envelope family and the angle
+// arm can never disagree about the roll.
+static bool VrBs_IsBodyTurnLive(s32 st) {
+    if (st == BS_31_ROLL && CVarGetInteger("gVRFpRollCam", 1) == 0) {
+        return false;
+    }
+    return VrBs_IsBodyTurn(st);
 }
 
 // Face Banjo where the player is LOOKING: body yaw = view yaw (base + head) flipped through the
@@ -1665,11 +1685,11 @@ static float VrFlipAngleRad(void) {
     // collapsed a tilt the comment below promises will HOLD and swung the view about 45 degrees
     // while the player was dead and holding no stick. So the reset asks which of these shapes is
     // running, and one death is one envelope however many states the game spends it in.
-    const int fam = VrBs_IsDeath(st)      ? 1
-                    : (st == BS_72_SPLAT) ? 2
-                    : VrBs_IsHurt(st)     ? 3
-                    : VrBs_IsBodyTurn(st) ? 4
-                                          : 0;
+    const int fam = VrBs_IsDeath(st)          ? 1
+                    : (st == BS_72_SPLAT)     ? 2
+                    : VrBs_IsHurt(st)         ? 3
+                    : VrBs_IsBodyTurnLive(st) ? 4
+                                              : 0;
     if (fam != sPrevFam) {
         sEnvT = 0.0f; // a new event starts its envelope at the beginning, never part way through
         sPrevFam = fam;
@@ -1740,7 +1760,7 @@ static float VrFlipAngleRad(void) {
             p = 1.0f;
         }
         deg = kTiltHurtDeg * sinf(kPi * p);
-    } else if (VrBs_IsBodyTurn(st)) {
+    } else if (VrBs_IsBodyTurnLive(st)) {
         ownsAngle = true;
         goesOverTop = (st == BS_12_BFLIP || st == BS_31_ROLL);
         void* anim = baanim_getAnimCtrlPtr();
@@ -1922,10 +1942,118 @@ static float VrFlipAngleRad(void) {
 
 // Per-tick VR<->game sync: while paused (or the VR overlay is up) the shared plane carries MENU
 // content, so it switches to the SCREEN knobs - the HUD size/dist sliders stop moving the menus.
+// ---- field-report repro (diagnostic only, env-gated, zero cost when unset) -------------------
+// Headless reproduction of wild reports without a save that stands at the scene:
+//   BK_DIAG_WARP=<map>,<exit>   fires the dev menu's warp once gameplay has settled
+//   BK_DIAG_SPAWN=<id>[,<id>..] spawns a ring of four of each actor around the player, so one
+//                               capture shows the model's front AND back
+// Both print what they did, so a run's log proves the scene was actually reached.
+static void VrDiag_Tick(void) {
+    static int sState = -1; // -1 unparsed, 0 off, 1 settle-then-warp, 2 settle-then-spawn, 3 done
+    static int sWarpMap = -1;
+    static int sWarpExit = 0;
+    static int sSpawn[8];
+    static int sSpawnCount = 0;
+    static int sTicks = 0;
+    if (sState < 0) {
+        sState = 0;
+        const char* w = getenv("BK_DIAG_WARP");
+        const char* s = getenv("BK_DIAG_SPAWN");
+        if (w != NULL && sscanf(w, "%i,%i", &sWarpMap, &sWarpExit) >= 1) {
+            sState = 1;
+        }
+        if (s != NULL) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%s", s);
+            for (char* t = strtok(buf, ","); t != NULL && sSpawnCount < 8; t = strtok(NULL, ",")) {
+                int v = 0;
+                if (sscanf(t, "%i", &v) == 1) {
+                    sSpawn[sSpawnCount++] = v;
+                }
+            }
+            if (sState == 0 && sSpawnCount > 0) {
+                sState = 2; // no warp requested: settle in the boot map, then spawn
+            }
+        }
+        if (sState == 0 && getenv("BK_DIAG_TRANSITION") != NULL) {
+            sState = 2; // transition-only run: settle, then fire it
+        }
+        if (sState != 0) {
+            setvbuf(stdout, NULL, _IONBF, 0);
+            printf("[DIAG] armed: state=%d warp=0x%X,%d spawnCount=%d\n", sState, sWarpMap, sWarpExit, sSpawnCount);
+        }
+        // A/B seam for the far-LOD investigation: force the existing Disable LOD enhancement on
+        // for this run only (the harness restores the config file around the run).
+        const char* lod = getenv("BK_DIAG_SETLOD");
+        if (lod != NULL) {
+            CVarSetInteger(CVAR_ENHANCEMENT("Graphics.DisableLOD"), atoi(lod));
+            printf("[DIAG] DisableLOD forced to %d\n", atoi(lod));
+        }
+    }
+    if (sState == 0) {
+        return;
+    }
+    static int sBeat = 0;
+    ++sBeat;
+    if ((sState < 3 && (sBeat <= 400 || (sBeat % 30) == 0)) || (sBeat % 300) == 0) {
+        printf("[DIAG] t=%d state=%d mode=%d draw=%d map=0x%X ticks=%d\n", sBeat, sState, (int)getGameMode(),
+               (int)gsworld_getEnableDraw(), (int)gsworld_getMap(), sTicks);
+    }
+    if (sState >= 3) {
+        return;
+    }
+    if (getGameMode() != GAME_MODE_3_NORMAL || !gsworld_getEnableDraw()) {
+        sTicks = 0; // count settled gameplay ticks only
+        return;
+    }
+    sTicks++;
+    if (sState == 1) {
+        if (sTicks >= 120) { // four seconds into the boot map: past the entry wipe and swoop
+            printf("[DIAG] warp to map 0x%X exit %d\n", sWarpMap, sWarpExit);
+            func_8031D04C((enum map_e)sWarpMap, sWarpExit);
+            sState = 2;
+            sTicks = 0;
+        }
+        return;
+    }
+    if (sTicks >= 150) { // settled in the target map (the warp drops EnableDraw during the load)
+        // BK_DIAG_TRANSITION=<idx>: fire the game's own indexed transition over live gameplay.
+        // Index 1 is the falling-jiggy screen-capture transition, which otherwise only plays on
+        // world entry from the lair - unreachable headless without a save standing at a door.
+        const char* tr = getenv("BK_DIAG_TRANSITION");
+        if (tr != NULL) {
+            int idx = 0;
+            if (sscanf(tr, "%i", &idx) == 1) {
+                printf("[DIAG] transition index %d\n", idx);
+                gctransition_8030BEA4(idx);
+            }
+        }
+        f32 pos[3];
+        player_getPosition(pos);
+        for (int i = 0; i < sSpawnCount; i++) {
+            // A distance-graded line per actor id, so ONE capture answers whether a rendering
+            // fault tracks distance (LOD/draw-distance selectors) - near and far in the same frame.
+            static const f32 kDist[4] = { 150.0f, 400.0f, 900.0f, 1800.0f };
+            for (int k = 0; k < 4; k++) {
+                f32 p[3] = { pos[0] + kDist[k], pos[1] + 40.0f, pos[2] + 220.0f * (f32)i };
+                u32 xb, yb, zb;
+                memcpy(&xb, &p[0], 4);
+                memcpy(&yb, &p[1], 4);
+                memcpy(&zb, &p[2], 4);
+                __spawnQueue_add_4((void*)spawnQueue_actor_f32, (uintptr_t)(u32)sSpawn[i], (uintptr_t)xb,
+                                   (uintptr_t)yb, (uintptr_t)zb);
+            }
+            printf("[DIAG] spawn ring actor 0x%X around (%.0f, %.0f, %.0f)\n", sSpawn[i], pos[0], pos[1], pos[2]);
+        }
+        sState = 3;
+    }
+}
+
 extern "C" void VrGame_SyncFrame(void) {
     sVrTick++;              // freshness clock for the sky-pass Mtx registry
     VrGame_SampleMouse();   // one mouse sample per tick; look paths consume it once
     VrGame_PollHaptics();   // landing, damage and death, felt in the hands
+    VrDiag_Tick();          // field-report repro: env-gated warp/spawn, no-op when unset
     // DIORAMA anchoring: hand vr.cpp how far the camera currently is from what it is looking at,
     // so the tabletop can be anchored on BANJO instead of on the camera that orbits him.
     {

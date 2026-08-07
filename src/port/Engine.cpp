@@ -466,10 +466,18 @@ GameEngine::GameEngine() {
     // BK_VR_EYEDUMP=<n> is the headless verification seam: the per-eye render runs with synthetic
     // matrices (no headset, no OpenXR session) and dumps eye frames to BMPs - it needs the GL
     // backend for the same reason VR does.
-    if (vr_is_requested() || getenv("BK_VR_EYEDUMP") != nullptr) {
+    if (vr_is_requested() || getenv("BK_VR_EYEDUMP") != nullptr || getenv("BK_DIAG_DUMP") != nullptr) {
         this->context->GetConfig()->SetInt("Window.Backend.Id", (int32_t)Fast::WindowBackend::FAST3D_SDL_OPENGL);
         this->context->GetConfig()->SetString("Window.Backend.Name", "OpenGL");
         SPDLOG_INFO("[VR] requested - forced OpenGL backend (OpenXR binds to WGL)");
+        // Seed Disable LOD on for VR, first run only (absent key), user's later choice sticks.
+        // Retail's far LOD models are authored coarse and untextured (TTC's clams go flat pink)
+        // because at 320x240 they were a few pixels; the VR eye buffer and the mirror's central
+        // crop render them big and crisp, which players report as missing textures. Forcing the
+        // near LOD is the look the N64 actually showed you.
+        if (CVarGetInteger(CVAR_ENHANCEMENT("Graphics.DisableLOD"), -1) == -1) {
+            CVarSetInteger(CVAR_ENHANCEMENT("Graphics.DisableLOD"), 1);
+        }
         // Gamepad menu navigation - the mouse cursor isn't usable in the headset, so the menu must be
         // drivable with the controller.
         CVarSetInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
@@ -1860,6 +1868,39 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
                         snprintf(path, sizeof(path), "vr_eye_r_dump_%02d.bmp", sDumpBudget);
                         vr_debug_dump_texture(interpreter->GetVrFbTextureId(), dw, dh, path);
                         sDumpBudget--;
+                    }
+                }
+            }
+            // Flat-frame contact sheet for field reports (BK_DIAG_DUMP=<start>,<end>,<step>): render
+            // the live display list through the panel path (no stereo substitution) and dump it for
+            // every <step>th sub-frame in [start, end]. Unlike the eye dump above this has NO stereo
+            // gate, so loading-screen content - the jiggy wipe a player reported - is capturable
+            // headless too.
+            {
+                static long sDiagA = -2, sDiagB = 0, sDiagStep = 30, sDiagN = 0;
+                if (sDiagA == -2) {
+                    const char* e = getenv("BK_DIAG_DUMP");
+                    long a = 0, b = 0, st = 30;
+                    if (e != NULL && sscanf(e, "%ld,%ld,%ld", &a, &b, &st) >= 2) {
+                        sDiagA = a;
+                        sDiagB = b;
+                        sDiagStep = st < 1 ? 1 : st;
+                        setvbuf(stdout, NULL, _IONBF, 0);
+                    } else {
+                        sDiagA = -1;
+                    }
+                }
+                if (sDiagA >= 0) {
+                    const long n = sDiagN++;
+                    // Never dump inside the boot window: the render-target machinery is not up in
+                    // the first frames, and a dump there wedged the game tick loop on DX11.
+                    if (n >= 120 && n >= sDiagA && n <= sDiagB && ((n - sDiagA) % sDiagStep) == 0) {
+                        const int dw = 1024, dh = 1024;
+                        char path[64];
+                        interpreter->RunVrPanel(Commands, m, dw, dh);
+                        snprintf(path, sizeof(path), "diag_panel_%05ld.bmp", n);
+                        vr_debug_dump_texture(interpreter->GetVrFbTextureId(), dw, dh, path);
+                        printf("[DIAG] panel dump %ld\n", n);
                     }
                 }
             }

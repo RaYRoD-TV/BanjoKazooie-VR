@@ -292,6 +292,15 @@ static void createTransitionFb(void* arg) {
     sTransitionGpuFbId = gfx_create_framebuffer(DEFAULT_FRAMEBUFFER_WIDTH, DEFAULT_FRAMEBUFFER_HEIGHT,
                                                 DEFAULT_FRAMEBUFFER_WIDTH, DEFAULT_FRAMEBUFFER_HEIGHT, 1, 0);
     gfx_register_fb_texture(sTransitionFbDummy, sTransitionGpuFbId);
+    // Whole-source scaled blit into this fb: the capture source is the render target's full
+    // image (an eye buffer in VR, the internal resolution flat), and the default 1:1 region copy
+    // clips or misses it entirely at any size mismatch.
+    if (auto* interp = GameEngine_GetInterpreter()) {
+        interp->SetFbCopyScaledTarget(sTransitionGpuFbId, DEFAULT_FRAMEBUFFER_WIDTH, DEFAULT_FRAMEBUFFER_HEIGHT);
+    }
+    if (getenv("BK_DIAG_TRANSITION") != NULL) {
+        printf("[TRDIAG] transition fb created id=%d\n", sTransitionGpuFbId);
+    }
 }
 
 s32 port_getTransitionGpuFbId(void) {
@@ -306,6 +315,9 @@ s32 port_getTransitionGpuFbId(void) {
 // Called after the scene draw.
 void port_captureTransitionFb(Gfx** gfx) {
     s32 trFb = port_getTransitionGpuFbId(); // create + register on first use
+    if (getenv("BK_DIAG_TRANSITION") != NULL) {
+        printf("[TRDIAG] capture emit trFb=%d\n", trFb);
+    }
     if (trFb >= 0) {
         gDPCopyFB((*gfx)++, trFb, 0, 0, NULL); // copy main FB -> transition FB
     }

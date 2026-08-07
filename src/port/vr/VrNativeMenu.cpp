@@ -72,6 +72,7 @@ static void RowDefaults(void) {
     CVarSetFloat("gVRMenuOpacity", 0.85f);
     CVarSetFloat("gVRImGuiOpacity", 0.95f);
     CVarSetInteger("gVRFpViewBob", 0);
+    CVarSetInteger("gVRFpRollCam", 1);
     CVarSetInteger("gVRFpVerticalLook", 1);
     CVarSetInteger("gVRSwimADash", 1);
     CVarSetInteger("gVRFpHeadMove", 1);
@@ -167,6 +168,7 @@ static const VrRow kRowsFp[] = {
     { "LOOK SPEED",    ROW_FLOAT, "gVRFpLookSpeed",          10.0f, 40.0f, 320.0f, 160.0f, NULL, NULL, -1, "DEGREES PER SECOND THE STICK TURNS YOUR VIEW." },
     { "VERTICAL LOOK", ROW_INT01, "gVRFpVerticalLook",       1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "LETS THE STICK LOOK UP AND DOWN. OFF USES YOUR HEAD." },
     { "VIEW BOB",      ROW_INT01, "gVRFpViewBob",            1.0f, 0.0f, 1.0f, 0.0f, NULL, NULL, -1, "SMALL WALK BOB AND LANDING DIP IN FIRST PERSON." },
+    { "ROLL CAM",      ROW_INT01, "gVRFpRollCam",            1.0f, 0.0f, 1.0f, 1.0f, NULL, NULL, -1, "THE FORWARD ROLL TURNS YOUR VIEW WITH BANJO. OFF STAYS LEVEL." },
     { "EYE FORWARD",   ROW_FLOAT, "gVRFirstPersonFwd",       0.15f, -3.0f, 5.0f, 0.0f, NULL, NULL, -1, "NUDGES THE EYE AHEAD OF OR BEHIND BANJOS HEAD." },
     { "EYE RAISE",     ROW_FLOAT, "gVRFirstPersonEyeHeight", 0.05f, -1.5f, 1.5f, 0.0f, NULL, NULL, -1, "RAISES OR LOWERS YOUR EYE IN FIRST PERSON." },
     { "FP SCALE",      ROW_FLOAT, "gVRFirstPersonScale",     1.0f, 20.0f, 400.0f, 100.0f, NULL, NULL, -1, "WORLD SIZE IN FIRST PERSON ONLY." },

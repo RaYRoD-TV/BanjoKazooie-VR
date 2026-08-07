@@ -874,6 +874,20 @@ void modelRender_geoCmd_LOD(Gfx **gfx, Mtx **mtx, struct bk_geo_cmd_s *arg2){
         }
         draw = (cmd->min_C < dist && dist <= cmd->max_8);
         draw = port_geoCullDraw(OCCLUSION_CMD_LOD, cmd, modelRenderModelBin, draw, NULL, 0, (s32)cmd->min_C, (s32)cmd->max_8);
+        // [port] Field-report diagnostics (BK_GEO_LOG=1): every LOD band decision, capped. A
+        // model drawing its far variant up close is invisible in code and one line here.
+        {
+            static int sGeoLog = -1;
+            static int sGeoLogCount = 0;
+            if (sGeoLog < 0) {
+                sGeoLog = (getenv("BK_GEO_LOG") != NULL) ? 1 : 0;
+            }
+            if (sGeoLog == 1 && sGeoLogCount < 200000) {
+                sGeoLogCount++;
+                printf("[GEOLOG] lod bin=%p min=%.0f max=%.0f dist=%.0f draw=%d\n", (void*)modelRenderModelBin,
+                       cmd->min_C, cmd->max_8, dist, draw);
+            }
+        }
         if(draw){
             modelRender_executeGeoCmds(gfx, mtx, (BKGeoCmd*)((u8*)cmd + cmd->subgeo_offset_1C));
         }
