@@ -23,6 +23,7 @@
 
 extern "C" {
 #include "enums.h"      // game_mode_e, GameMap
+#include "core2/nc/camera.h" // camera_type_e - which camera OWNS the viewport this tick
 #include <libultraship/libultra/controller.h>
 
 s32 getGameMode(void);
@@ -112,6 +113,10 @@ void func_802C0490(f32 focus[3]); // camera focus point (Banjo)
 f32 func_802BD8D4(void);          // the camera's DESIRED orbit distance, before wall collision
 void ncDynamicCamera_getRotation(f32 dst[3]);
 s32  ncDynamicCamera_getState(void); // which camera is driving - logged so scripted shots are identifiable
+// WHICH camera owns the viewport, not which dynamic-camera state is running. Type 2 is the chase
+// camera and the only one ncDynamicCamera_update - and therefore the only one either VR camera hook
+// - is reachable from (dynamicCamera.c, the port_vrCamDist_apply / port_vrFirstPerson_override pair).
+s32  ncCamera_getType(void);
 void viewport_setPosition_vec3f(f32 pos[3]);
 // The game's own collision raycast. Using it (rather than a second collision system) keeps the VR
 // anti-clip agreeing with the walls the game itself believes in. The real return is a collision
@@ -173,6 +178,44 @@ static bool VrGame_IsCutsceneMap(int map) {
 // the player pauses would yank them out of the world.
 // The gate minus the live-session requirement: also drives the headless eye-dump harness, which
 // exercises the stereo render path with no OpenXR session at all.
+// AUTHORED CAMERA SHOTS. Bottles' molehills, the witch-switch reveals, the golden-croc chain, the
+// jiggy-spawn flourishes, Grunty's Furnace Fun: the game takes the camera off the chase and parks it
+// on a node it composed by hand (ncStaticCamera_setToNode at type 3, or the scripted camera-path
+// actor and the quiz board at type 1). Not one VR camera hook is reachable from there -
+// port_vrCamDist_apply and port_vrFirstPerson_override are wired into ncDynamicCamera_update alone,
+// and ncCamera_update does not call it while the type is not 2 - so the game-side camera lands
+// exactly on the node. Two things then go wrong on top of that node, and only one of them is the lens:
+//
+//   1. THE EYE IS STILL OFFSET. Only the FIRST PERSON framing offsets fade when the game takes the
+//      camera (vr.cpp, sFPForwardCur / sFPEyeHeightCur against sFpFramingOn). Third Person's eye
+//      height and the Diorama placement do not, so in those modes - Third Person is the default -
+//      the eye sits about a metre, 109 game units, off a node that was placed to the inch.
+//   2. THE LENS IS WIDER. Those nodes were framed for a 40-degree lens whose near plane the camera
+//      code keeps tens of units out; a headset looks through a much wider one with a 5 cm near
+//      plane. The wall the shot stood behind, the hillside it was buried in and the empty space past
+//      the map edge were all outside the flat frame and are all inside ours.
+//
+// Together: "blocked with the level geometry" and "places you OUTSIDE THE MAP". Moving the eye is not
+// on the table - an authored shot has no safe offset, and any offset is a different shot. So the shot
+// goes where it was composed to go: onto the flat panel, at the game's own projection, in a framed
+// window that cannot show one pixel the author did not put there, with no eye offset of ours applied.
+//
+// Type 1 is in the net deliberately. It is the scripted camera-path actor, and it is also Grunty's
+// Furnace Fun, which holds type 1 for the whole quiz (ff_manager.c func_8038CE00). That segment is a
+// fixed-camera game board on a lair map, not a cutscene map, so it plays flat under this gate. That
+// is the intended answer, not an accident: it is the same class of hand-composed shot, just a long one.
+static bool VrGame_AuthoredShotActive(void) {
+    return ncCamera_getType() != CAMERA_TYPE_2_DYNAMIC;
+}
+
+// Ticks the panel still owes an authored shot after the game hands the camera back. The return is a
+// CUT in its own right - camera_setType drops the interpolation tree on the way out as well as in -
+// and the chase camera has to re-derive its pose from scratch, so a few ticks of dwell keep the first
+// frame back to stereo off that seam. Entry is deliberately NOT held: the type change is the game's
+// own cut, so switching there lands on a cut instead of making one.
+static const int kAuthoredShotHoldTicks = 6; // ~0.2 s at the game's tick rate
+static int sAuthoredShotHold = 0;
+
 extern "C" bool VrGame_StereoEligible(void) {
     if (vr_get_view_mode() == VR_VIEW_THEATER) {
         return false;
@@ -184,7 +227,14 @@ extern "C" bool VrGame_StereoEligible(void) {
     if (!gsworld_getEnableDraw()) {
         return false; // between maps: the game draws a black rect and a bare perspective
     }
-    if (CVarGetInteger("gVRCutscenes", 0) == 0 && VrGame_IsCutsceneMap((int)gsworld_getMap())) {
+    if (VrGame_IsCutsceneMap((int)gsworld_getMap())) {
+        // A cutscene map is authored end to end, so gVRCutscenes is the only vote that counts here:
+        // letting the per-shot gate below overrule it would leave that switch doing nothing. Same
+        // expression as before for every map this covers, the file select included.
+        return CVarGetInteger("gVRCutscenes", 0) != 0;
+    }
+    // In-world authored shots go to the panel too, unless the player has asked for them in stereo.
+    if (CVarGetInteger("gVRScriptedShots", 0) == 0 && (VrGame_AuthoredShotActive() || sAuthoredShotHold > 0)) {
         return false;
     }
     return true;
@@ -399,7 +449,7 @@ extern "C" void port_vrCullAdjust(f32* pitchDeg, f32* yawDeg, f32* frustumX, f32
     vr_get_head_offset_m(off);
     float padM = 0.75f + sqrtf(off[0] * off[0] + off[1] * off[1] + off[2] * off[2]);
     if (mode == VR_VIEW_DIORAMA) {
-        padM += fabsf(CVarGetFloat("gVRDioramaDist", 0.0f)) + fabsf(CVarGetFloat("gVRDioramaHeight", -0.06f));
+        padM += fabsf(CVarGetFloat("gVRDioramaDist", 0.20f)) + fabsf(CVarGetFloat("gVRDioramaHeight", -0.04f));
     }
     *padWorldUnits = padM * unitsPerM + fabsf(vr_fp_forward_game_units());
 }
@@ -1395,9 +1445,13 @@ static void MergePadSources(OSContPad* pad) {
             sLog = (getenv("BK_VR_LIVELOG") != NULL || getenv("BK_VR_EYEDUMP") != NULL) ? 1 : 0;
         }
         if (sLog == 1) {
-            static s32 sPrevMode = -1, sPrevBs = -1, sPrevCam = -1;
+            static s32 sPrevMode = -1, sPrevBs = -1, sPrevCam = -1, sPrevCamT = -1;
             static int sPrevLive = -1, sPrevWater = -1, sPrevFraming = -1, sPrevSurf = -1;
             const s32 m = getGameMode(), b = bs_getState(), cam = ncDynamicCamera_getState();
+            // camT = WHICH camera owns the viewport (2 = chase). This is what the authored-shot
+            // panel gate keys on, so a livelog run shows the gate's input directly - the cam=
+            // field only names the dynamic-camera STATE, which does not change under type 1/3.
+            const s32 camT = ncCamera_getType();
             const int live = BsStateIsLive() ? 1 : 0, water = player_inWater() ? 1 : 0;
             const int framing = port_vrFirstPerson_hidePlayer();
             // surf packs the two water-boundary predicates: bit 0 = near the surface band
@@ -1407,14 +1461,15 @@ static void MergePadSources(OSContPad* pad) {
             // designed to stand down at the surface because surface steering is camera-relative.
             const int surf = (func_802A73BC() ? 1 : 0) | (func_80294524() ? 2 : 0);
             if (m != sPrevMode || b != sPrevBs || live != sPrevLive || water != sPrevWater || cam != sPrevCam ||
-                framing != sPrevFraming || surf != sPrevSurf) {
-                // cam = which camera owns the shot, fpFraming = whether our First Person offsets apply.
-                // A scripted shot shows as a cam change with fpFraming dropping to 0.
-                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d surf=%d cam=%d fpFraming=%d\n",
-                       (int)m, (unsigned)b, live, water, surf, (int)cam, framing);
+                camT != sPrevCamT || framing != sPrevFraming || surf != sPrevSurf) {
+                // cam = which dynamic-camera state runs, camT = which camera OWNS the viewport
+                // (2 = chase; anything else is an authored shot and the stereo gate sends it to
+                // the panel), fpFraming = whether our First Person offsets apply.
+                printf("[VR] gameMode=%d bsState=0x%02X bsLive=%d inWater=%d surf=%d cam=%d camT=%d fpFraming=%d\n",
+                       (int)m, (unsigned)b, live, water, surf, (int)cam, (int)camT, framing);
                 fflush(stdout); // survives a killed process - an observability print that can vanish is no seam
                 sPrevMode = m; sPrevBs = b; sPrevLive = live; sPrevWater = water; sPrevCam = cam;
-                sPrevFraming = framing; sPrevSurf = surf;
+                sPrevCamT = camT; sPrevFraming = framing; sPrevSurf = surf;
             }
         }
     }
@@ -2069,6 +2124,12 @@ extern "C" void VrGame_SyncFrame(void) {
     // if the bear stays hidden decides whether our framing offsets apply: when the game takes the
     // camera for a conversation or a switch reveal, the offsets fade and the authored shot stands.
     vr_set_fp_framing(port_vrFirstPerson_hidePlayer());
+    // Arm / run down the authored-shot exit hold, once per tick. Read live in VrGame_StereoEligible
+    // rather than latched here on purpose: this runs at INPUT time, before the tick's camera update,
+    // so a latch would enter the panel one tick late (one frame of the very geometry we are hiding).
+    // Lagging the HOLD by a tick only ever makes it slightly longer, which costs nothing.
+    sAuthoredShotHold = VrGame_AuthoredShotActive() ? kAuthoredShotHoldTicks
+                                                    : (sAuthoredShotHold > 0 ? sAuthoredShotHold - 1 : 0);
 
     // --- head translation scale, including the ANTI-CLIP wall clamp ---------------------------
     // Physical lean is what pushes the eye through walls: the game collides its CAMERA and knows
@@ -2083,7 +2144,10 @@ extern "C" void VrGame_SyncFrame(void) {
     // so stepping back out of a corner cannot fling the view.
     const int mode = vr_get_view_mode();
     const bool fp = (mode == VR_VIEW_FIRST_PERSON);
-    float scale = CVarGetFloat("gVRHeadScale", 1.0f);
+    // Fallback matches the LEAN row's default. It was 1.0 here for fifteen rounds, so any config
+    // without the key leaned at FULL strength while the menu displayed 0.1 - "lean is too
+    // sensitive" with a knob that looked dead until it was written once.
+    float scale = CVarGetFloat("gVRHeadScale", 0.1f);
     if (fp && CVarGetInteger("gVRFpImmersive", 1) == 0) {
         scale = 0.0f; // immersive cam off: the eye stays pinned to the head bone
     }

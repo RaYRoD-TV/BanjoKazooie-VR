@@ -161,20 +161,28 @@ void LighthouseMenu::AddMenuVR() {
     AddWidget(path, "Diorama Scale", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaWorldScale")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(200.0f).Max(12000.0f).Step(50.0f).DefaultValue(8000.0f).Tooltip(
+        .Options(FloatSliderOptions().Min(200.0f).Max(12000.0f).Step(50.0f).DefaultValue(6200.0f).Tooltip(
             "Game units per metre for the tabletop. HIGHER makes the miniature smaller."));
 
     AddWidget(path, "Diorama Distance", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaDist")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.05f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(2.0f).Step(0.05f).DefaultValue(0.20f).Tooltip(
             "Metres the tabletop sits in front of you."));
 
     AddWidget(path, "Diorama Height", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gVRDioramaHeight")
         .RaceDisable(false)
-        .Options(FloatSliderOptions().Min(-1.5f).Max(1.5f).Step(0.02f).DefaultValue(-0.4f).Tooltip(
+        .Options(FloatSliderOptions().Min(-1.5f).Max(1.5f).Step(0.02f).DefaultValue(-0.04f).Tooltip(
             "Metres the tabletop sits above (+) or below (-) eye level."));
+
+    AddWidget(path, "Diorama Lean", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gVRDioramaLean")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions().Min(0.0f).Max(1.5f).Step(0.05f).DefaultValue(1.0f).Tooltip(
+            "How much your real head movement carries you around the tabletop. 1 is true to "
+            "life and easiest on the stomach; lower keeps the table more centred while you "
+            "move, at the cost of parallax that no longer matches your inner ear."));
 
     path.column = SECTION_COLUMN_2;
 
@@ -366,6 +374,16 @@ void LighthouseMenu::AddMenuVR() {
         .Options(CheckboxOptions().DefaultValue(false).Tooltip(
             "Watch cutscenes in full stereo instead of on the flat screen. Off by default: their "
             "scripted camera sweeps are authored for a flat screen and can read as motion sickness."));
+
+    AddWidget(path, "Stereo Scripted Shots", WIDGET_CVAR_CHECKBOX)
+        .CVar("gVRScriptedShots")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().DefaultValue(false).Tooltip(
+            "Watch the game's own camera shots - Bottles' molehills, switch reveals, the Croctus "
+            "chain, Furnace Fun - in stereo instead of on the flat screen. Off by default: those "
+            "cameras are parked on hand-placed nodes framed for a narrow lens, and outside First "
+            "Person the headset's eye offset is not removed there either, so you see the scenery "
+            "and empty space the shot was composed to crop away."));
 
     AddWidget(path, "Mixed Reality (Passthrough)", WIDGET_CVAR_CHECKBOX)
         .CVar("gVRPassthrough")

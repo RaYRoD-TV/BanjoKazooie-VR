@@ -139,13 +139,17 @@ static float sThirdPersonDist    = 0.0f;    // Third Person camera distance offs
                                             // Banjo, - = closer. 0 = stock chase distance.
 static float sCockpitForward     = 0.0f;    // slot 2 unused in Banjo (donor cockpit mode); kept so the
 static float sCockpitHeight      = -0.15f;  // shared eye-matrix code stays identical across the ports.
-static float sDioramaWorldScale  = 8000.0f; // Diorama world scale (game units/m), INDEPENDENT of the global
+static float sDioramaWorldScale  = 6200.0f; // Diorama world scale (game units/m), INDEPENDENT of the global
                                             // World Scale so tuning the tabletop never touches Third/First
                                             // person. Higher = smaller tabletop. 8000 with the forward and
                                             // downward placement below reads as a MODEL on a table in front
                                             // of you rather than a world you happen to be huge in.
-static float sDioramaDist        = 0.05f;   // meters the tabletop sits in front of you (Diorama)
-static float sDioramaHeight      = -0.40f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
+static float sDioramaDist        = 0.20f;   // meters the tabletop sits in front of you (Diorama)
+static float sDioramaHeight      = -0.04f;  // meters the tabletop is offset vertically (Diorama; - = below eye)
+static float sDioramaLean        = 1.0f;    // Diorama's OWN head-motion gain. 1 = room-true tracking (the
+                                            // vestibular-safe answer for a room-anchored table); the knob
+                                            // exists because at a close table full parallax can read hot,
+                                            // and that trade belongs to the player, not a hardcode.
 // How far the game camera sits from what it is looking at, game units, pushed per tick. The
 // diorama anchors on the FOCUS rather than the camera: the camera is the thing that orbits, and
 // anchoring on it left Banjo - the one thing the tabletop is FOR - sliding around the room
@@ -428,7 +432,9 @@ static void vr_build_eye_matrix(int eye) {
     // parallax on something at arm's length is a straight vestibular conflict - "it moves with my
     // head and it's quite nauseous", which is exactly what it was reported as. Every other mode
     // hid this because their anchor is metres away, where a tenth of a lean is a rounding error.
-    const float headScaleNow = (sViewMode == VR_VIEW_DIORAMA) ? 1.0f : sHeadScale;
+    // Diorama tracks through its OWN gain (default 1.0, the room-true answer above) instead of the
+    // body-mode LEAN knob - one dial per meaning, and the tabletop dial lives with the tabletop rows.
+    const float headScaleNow = (sViewMode == VR_VIEW_DIORAMA) ? sDioramaLean : sHeadScale;
     if (sHeadRestSet) {
         dcx = sHeadRest[0] + (cx - sHeadRest[0]) * headScaleNow;
         dcy = sHeadRest[1] + (cy - sHeadRest[1]) * headScaleNow;
@@ -1788,6 +1794,7 @@ static void vr_sync_tunables(void) {
     sDioramaWorldScale    = CVarGetFloat("gVRDioramaWorldScale",    sDioramaWorldScale);
     sDioramaDist        = CVarGetFloat("gVRDioramaDist",      sDioramaDist);
     sDioramaHeight      = CVarGetFloat("gVRDioramaHeight",    sDioramaHeight);
+    sDioramaLean        = CVarGetFloat("gVRDioramaLean",      sDioramaLean);
     sMenuOpacity        = CVarGetFloat("gVRMenuOpacity",      sMenuOpacity);
     sImGuiOpacity       = CVarGetFloat("gVRImGuiOpacity",     sImGuiOpacity);
     sFogMode            = CVarGetInteger("gVRFogMode",        sFogMode);
