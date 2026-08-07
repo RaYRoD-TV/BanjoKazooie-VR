@@ -45,6 +45,45 @@ extern "C" int   CVarGetInteger(const char* name, int defaultValue);
 extern "C" void  CVarSetInteger(const char* name, int value);
 extern "C" void  CVarClear(const char* name);
 
+// ---- VR debug log -----------------------------------------------------------
+// Every [VR] line is mirrored into vr-log.txt beside the exe. The exe is a windowed app, so stdout
+// is invisible to players - this file is the thing a bug report can actually include. The path is
+// resolved from the exe location, never cwd: the startup probe runs before the engine anchors the
+// working directory.
+static FILE* sVrLog      = NULL;
+static bool  sVrLogTried = false;
+static char  sVrLastError[512] = { 0 };
+
+static void vrlog(const char* fmt, ...) {
+    if (!sVrLog && !sVrLogTried) {
+        sVrLogTried = true;
+        char path[MAX_PATH];
+        DWORD n = GetModuleFileNameA(NULL, path, MAX_PATH);
+        if (n > 0 && n < MAX_PATH) {
+            char* slash = strrchr(path, '\\');
+            if (slash) {
+                strcpy(slash + 1, "vr-log.txt");
+                sVrLog = fopen(path, "w");
+            }
+        }
+    }
+    char line[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    fputs(line, stdout);
+    if (sVrLog) { fputs(line, sVrLog); fflush(sVrLog); }
+}
+
+// A visible message for when VR was expected but could not start. Without it a remote player can
+// only report "it did not work" - the reason lives on a stdout nobody can see. Suppressed for
+// headless harness runs, which must never block on a dialog.
+static void vr_alert(const char* text) {
+    if (getenv("BK_VR_EYEDUMP") || getenv("BK_VR_NO_POPUP")) return;
+    MessageBoxA(NULL, text, "Banjo-Kazooie VR", MB_OK | MB_ICONWARNING);
+}
+
 // ---- OpenXR state -----------------------------------------------------------
 static XrInstance     sInstance   = XR_NULL_HANDLE;
 static XrSystemId     sSystemId   = XR_NULL_SYSTEM_ID;
@@ -69,6 +108,7 @@ static bool sHasAlphaBlend = false; // runtime offers ALPHA_BLEND env mode (pass
 static bool sPassthroughOn = false; // MR toggled on this frame (gVRPassthrough && (FB-passthrough || alpha-blend))
 
 static bool sBootTried  = false;
+static bool sBootOk     = false; // set only when vr_boot reaches "OpenXR ready"
 static bool sRunning    = false;
 static bool sFrameBegun = false;
 static bool sViewsValid = false;
@@ -416,7 +456,7 @@ static void vr_build_eye_matrix(int eye) {
     // 6DoF damping: scale the head's offset from a captured rest pose by sHeadScale (1 = full).
     if (eye == 0 && !sHeadRestSet && ++sHeadWarmup >= 15) {
         sHeadRest[0] = cx; sHeadRest[1] = cy; sHeadRest[2] = cz; sHeadRestSet = true;
-        printf("[VR] 6DoF rest captured at (%.2f, %.2f, %.2f)\n", cx, cy, cz);
+        vrlog("[VR] 6DoF rest captured at (%.2f, %.2f, %.2f)\n", cx, cy, cz);
     }
     float dcx = cx, dcy = cy, dcz = cz;
     // DIORAMA IS A ROOM, NOT A BODY, so its head tracking must be 1:1 and the damping stands down.
@@ -712,7 +752,7 @@ extern "C" void vr_debug_synth_matrices(int eye, float eyeVP[16], float skyVP[16
         if (sSynthLog == 1) {
             static float pf = -999.0f, pe = -999.0f, pr = -999.0f;
             if (sFPForwardCur != pf || sFPEyeHeightCur != pe || sFlipRad != pr) {
-                printf("[VRDBG] synth A: mode=%d fpFwd=%.4f fpEye=%.4f flip=%.4f framing=%d\n", sViewMode,
+                vrlog("[VRDBG] synth A: mode=%d fpFwd=%.4f fpEye=%.4f flip=%.4f framing=%d\n", sViewMode,
                        sFPForwardCur, sFPEyeHeightCur, sFlipRad, sFpFramingOn ? 1 : 0);
                 fflush(stdout);
                 pf = sFPForwardCur; pe = sFPEyeHeightCur; pr = sFlipRad;
@@ -899,7 +939,7 @@ extern "C" int vr_debug_dump_texture(unsigned int glTextureId, int w, int h, con
     free(row);
     fclose(f);
     free(rgba);
-    printf("[VR] eye dump written: %s (%dx%d)\n", path, w, h);
+    vrlog("[VR] eye dump written: %s (%dx%d)\n", path, w, h);
     return 1;
 }
 
@@ -909,7 +949,8 @@ static bool xrok(XrResult r, const char* what) {
     char buf[XR_MAX_RESULT_STRING_SIZE] = { 0 };
     if (sInstance != XR_NULL_HANDLE) xrResultToString(sInstance, r, buf);
     else snprintf(buf, sizeof buf, "%d", (int)r);
-    printf("[VR] %s failed: %s\n", what, buf);
+    vrlog("[VR] %s failed: %s\n", what, buf);
+    snprintf(sVrLastError, sizeof sVrLastError, "%s failed: %s", what, buf);
     return false;
 }
 
@@ -1110,7 +1151,7 @@ static void vr_input_create(void) {
     sai.actionSets = &sActionSet;
     if (!xrok(xrAttachSessionActionSets(sSession, &sai), "xrAttachSessionActionSets")) { return; }
     sInputAttached = true;
-    printf("[VR] motion controllers ready (Touch / Touch Plus / Index / G2 / WMR / Vive profiles suggested).\n");
+    vrlog("[VR] motion controllers ready (Touch / Touch Plus / Index / G2 / WMR / Vive profiles suggested).\n");
 }
 
 // Print which interaction profile the runtime actually bound for each hand. Fires whenever the
@@ -1128,7 +1169,7 @@ static void vr_log_active_profiles(void) {
             uint32_t len = 0;
             xrPathToString(sInstance, ips.interactionProfile, sizeof(buf), &len, buf);
         }
-        printf("[VR] %s controller profile: %s\n", handName[h], buf);
+        vrlog("[VR] %s controller profile: %s\n", handName[h], buf);
     }
 }
 
@@ -1282,31 +1323,70 @@ static int64_t vr_choose_swapchain_format(void) {
         for (uint32_t i = 0; i < n; i++)
             if (fmts[i] == prefs[p]) { chosen = prefs[p]; found = true; break; }
     free(fmts);
-    printf("[VR] swapchain format: 0x%llx\n", (unsigned long long)chosen);
+    vrlog("[VR] swapchain format: 0x%llx\n", (unsigned long long)chosen);
     return chosen;
 }
 
-// Lightweight startup probe: is a VR headset connected right now?
+// Startup probe: is a VR headset connected right now, behind a runtime we can render to?
+// Two stages so a failure names itself in vr-log.txt: stage 1 asks the active OpenXR runtime for
+// ANY headset (no extensions), stage 2 re-asks with the OpenGL extension this port renders through.
+// A headset that answers stage 1 but not stage 2 belongs to a player who owns working VR and would
+// otherwise see the flat game with no explanation - that one case gets a visible message.
 extern "C" bool vr_headset_present(void) {
-    const char* exts[1] = { XR_KHR_OPENGL_ENABLE_EXTENSION_NAME };
     XrInstanceCreateInfo ici = { XR_TYPE_INSTANCE_CREATE_INFO };
-    ici.enabledExtensionCount = 1;
-    ici.enabledExtensionNames = exts;
     strncpy(ici.applicationInfo.applicationName, "Lighthouse", XR_MAX_APPLICATION_NAME_SIZE - 1);
     ici.applicationInfo.apiVersion = XR_API_VERSION_1_0; // VirtualDesktopXR etc. are OpenXR 1.0
+
     XrInstance inst = XR_NULL_HANDLE;
-    if (XR_FAILED(xrCreateInstance(&ici, &inst)) || inst == XR_NULL_HANDLE) return false;
+    XrResult cr = xrCreateInstance(&ici, &inst);
+    if (XR_FAILED(cr) || inst == XR_NULL_HANDLE) {
+        vrlog("[VR] probe: no OpenXR runtime answered (xrCreateInstance: %d) - running flat.\n", (int)cr);
+        vrlog("[VR] probe: if a headset IS connected, its runtime is not the system's active OpenXR runtime. Set it active (Quest Link: the Meta Quest Link app's settings / Virtual Desktop: the Streaming tab / SteamVR: its OpenXR settings page) and relaunch.\n");
+        return false;
+    }
+    XrInstanceProperties props = { XR_TYPE_INSTANCE_PROPERTIES };
+    if (XR_SUCCEEDED(xrGetInstanceProperties(inst, &props)))
+        vrlog("[VR] probe: active OpenXR runtime: %s\n", props.runtimeName);
     XrSystemGetInfo sgi = { XR_TYPE_SYSTEM_GET_INFO };
     sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     XrSystemId sys = XR_NULL_SYSTEM_ID;
     XrResult r = xrGetSystem(inst, &sgi, &sys);
     xrDestroyInstance(inst);
-    return XR_SUCCEEDED(r) && sys != XR_NULL_SYSTEM_ID;
+    if (XR_FAILED(r) || sys == XR_NULL_SYSTEM_ID) {
+        vrlog("[VR] probe: runtime is up but reports no headset (xrGetSystem: %d) - running flat.\n", (int)r);
+        vrlog("[VR] probe: connect and WAKE the headset (start Link / Air Link / Virtual Desktop streaming) BEFORE launching the game. A sleeping or not-yet-streaming headset reports exactly this.\n");
+        return false;
+    }
+
+    const char* exts[1] = { XR_KHR_OPENGL_ENABLE_EXTENSION_NAME };
+    ici.enabledExtensionCount = 1;
+    ici.enabledExtensionNames = exts;
+    inst = XR_NULL_HANDLE;
+    cr = xrCreateInstance(&ici, &inst);
+    if (XR_FAILED(cr) || inst == XR_NULL_HANDLE) {
+        vrlog("[VR] probe: headset found, but the runtime does not support OpenGL apps (xrCreateInstance with %s: %d) - running flat.\n",
+              XR_KHR_OPENGL_ENABLE_EXTENSION_NAME, (int)cr);
+        vr_alert("A headset was found, but the active OpenXR runtime cannot run OpenGL games, so the game is running flat.\n\n"
+                 "Fix: switch the active OpenXR runtime and relaunch.\n"
+                 "  - Virtual Desktop: update it, or pick SteamVR as the OpenXR runtime in its Streaming tab\n"
+                 "  - Windows Mixed Reality: install SteamVR and set it as the OpenXR runtime\n\n"
+                 "Details are in vr-log.txt next to Lighthouse.exe.");
+        return false;
+    }
+    sys = XR_NULL_SYSTEM_ID;
+    r = xrGetSystem(inst, &sgi, &sys);
+    xrDestroyInstance(inst);
+    if (XR_FAILED(r) || sys == XR_NULL_SYSTEM_ID) {
+        vrlog("[VR] probe: headset lost between probes (xrGetSystem: %d) - running flat.\n", (int)r);
+        return false;
+    }
+    vrlog("[VR] probe: headset found - VR enabled.\n");
+    return true;
 }
 
 static void vr_boot(void) {
     setvbuf(stdout, NULL, _IONBF, 0); // unbuffered so [VR] logs flush immediately (visible even if killed)
-    printf("[VR] booting OpenXR...\n");
+    vrlog("[VR] booting OpenXR...\n");
     // Probe the optional controller-profile extensions before creating the instance: the Quest 3 /
     // Pro native Touch Plus profile and the HP Reverb G2 profile only exist behind extensions, and
     // suggesting the native profile avoids the runtime's auto-translation (which can land buttons
@@ -1345,7 +1425,7 @@ static void vr_boot(void) {
 
     XrInstanceProperties props = { XR_TYPE_INSTANCE_PROPERTIES };
     if (XR_SUCCEEDED(xrGetInstanceProperties(sInstance, &props)))
-        printf("[VR] runtime: %s\n", props.runtimeName);
+        vrlog("[VR] runtime: %s\n", props.runtimeName);
 
     XrSystemGetInfo sgi = { XR_TYPE_SYSTEM_GET_INFO };
     sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -1361,12 +1441,12 @@ static void vr_boot(void) {
             if (bm && XR_SUCCEEDED(xrEnumerateEnvironmentBlendModes(sInstance, sSystemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, bc, &bc, bm))) {
                 for (uint32_t i = 0; i < bc; i++) {
                     if (bm[i] == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) sHasAlphaBlend = true;
-                    printf("[VR] env blend mode offered: %d\n", (int)bm[i]);
+                    vrlog("[VR] env blend mode offered: %d\n", (int)bm[i]);
                 }
             }
             free(bm);
         }
-        printf("[VR] MR ALPHA_BLEND fallback: %s\n", sHasAlphaBlend ? "AVAILABLE" : "not available");
+        vrlog("[VR] MR ALPHA_BLEND fallback: %s\n", sHasAlphaBlend ? "AVAILABLE" : "not available");
     }
 
     if (!xrok(xrGetInstanceProcAddr(sInstance, "xrGetOpenGLGraphicsRequirementsKHR",
@@ -1376,7 +1456,11 @@ static void vr_boot(void) {
 
     HDC   hdc  = wglGetCurrentDC();
     HGLRC glrc = wglGetCurrentContext();
-    if (!hdc || !glrc) { printf("[VR] no current WGL context - is the OpenGL backend active? (VR needs it)\n"); vr_shutdown(); return; }
+    if (!hdc || !glrc) {
+        vrlog("[VR] no current WGL context - is the OpenGL backend active? (VR needs it)\n");
+        snprintf(sVrLastError, sizeof sVrLastError, "no OpenGL context (the OpenGL backend is not active)");
+        vr_shutdown(); return;
+    }
 
     XrGraphicsBindingOpenGLWin32KHR gb = { XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR };
     gb.hDC = hdc;
@@ -1412,7 +1496,7 @@ static void vr_boot(void) {
                 lci.flags       = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
                 if (xrok(pfnCreatePassthroughLayer(sSession, &lci, &sPtLayer), "xrCreatePassthroughLayerFB")) {
                     xrok(pfnPassthroughStart(sPassthrough), "xrPassthroughStartFB");
-                    printf("[VR] passthrough available (Mixed Reality ready).\n");
+                    vrlog("[VR] passthrough available (Mixed Reality ready).\n");
                 }
             }
         }
@@ -1426,7 +1510,7 @@ static void vr_boot(void) {
     for (uint32_t i = 0; i < n; i++) sViewConfigs[i].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
     if (!xrok(xrEnumerateViewConfigurationViews(sInstance, sSystemId, vct, n, &n, sViewConfigs), "enum views")) { vr_shutdown(); return; }
     sViewCount = n;
-    printf("[VR] %u eyes, %ux%u per eye recommended\n", n,
+    vrlog("[VR] %u eyes, %ux%u per eye recommended\n", n,
         sViewConfigs[0].recommendedImageRectWidth, sViewConfigs[0].recommendedImageRectHeight);
 
     int64_t fmt = vr_choose_swapchain_format();
@@ -1449,12 +1533,13 @@ static void vr_boot(void) {
             scRes = xrCreateSwapchain(sSession, &scci, &sEye[e].handle);
             if (XR_SUCCEEDED(scRes)) {
                 if (scEyeScales[s] < 1.0f)
-                    printf("[VR] eye %u swapchain fell back to %ux%u\n", e, scci.width, scci.height);
+                    vrlog("[VR] eye %u swapchain fell back to %ux%u\n", e, scci.width, scci.height);
                 break;
             }
         }
         if (!XR_SUCCEEDED(scRes)) {
-            printf("[VR] xrCreateSwapchain failed at every size - VR disabled.\n");
+            vrlog("[VR] xrCreateSwapchain failed at every size - VR disabled.\n");
+            snprintf(sVrLastError, sizeof sVrLastError, "xrCreateSwapchain failed at every size (GPU memory?)");
             vr_shutdown(); return;
         }
         sEye[e].w = scci.width;
@@ -1505,7 +1590,8 @@ static void vr_boot(void) {
     // (VR keeps rendering, the gamepad keeps working).
     vr_input_create();
 
-    printf("[VR] OpenXR ready; waiting for session to start.\n");
+    sBootOk = true;
+    vrlog("[VR] OpenXR ready; waiting for session to start.\n");
 }
 
 static void vr_poll_events(void) {
@@ -1519,12 +1605,12 @@ static void vr_poll_events(void) {
                 sbi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 if (xrok(xrBeginSession(sSession, &sbi), "xrBeginSession")) {
                     sRunning = true;
-                    printf("[VR] session running.\n");
+                    vrlog("[VR] session running.\n");
                 }
             } else if (e->state == XR_SESSION_STATE_STOPPING) {
                 xrEndSession(sSession);
                 sRunning = false;
-                printf("[VR] session stopped.\n");
+                vrlog("[VR] session stopped.\n");
             }
         } else if (ev.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
             vr_log_active_profiles(); // which controller profile each hand actually bound to
@@ -1548,7 +1634,7 @@ static void vr_poll_events(void) {
             // head has been near-stationary for a beat: a deliberate recenter (head held still)
             // lands almost instantly, a mid-motion blip waits for calm.
             sSpaceChangePending = true;
-            printf("[VR] reference space recentered; anchors reset, origin re-capture pending.\n");
+            vrlog("[VR] reference space recentered; anchors reset, origin re-capture pending.\n");
         }
         ev.type = XR_TYPE_EVENT_DATA_BUFFER;
     }
@@ -1622,7 +1708,7 @@ extern "C" void  vr_reset_defaults(void) {
     sWorldScale = 100.0f; sStereoScale = 1.0f; sHeadScale = 0.1f; sEyeHeight = -1.09f;
     sMenuDist = 3.4f; sMenuSize = 3.6f;
     sHeadRestSet = false; sHeadWarmup = 0; sPanelAnchorValid = false;
-    printf("[VR] reset to defaults.\n");
+    vrlog("[VR] reset to defaults.\n");
 }
 
 // Ask for an in-game recenter; it lands on the next located frame (see vr_begin_frame).
@@ -1805,7 +1891,25 @@ static void vr_sync_tunables(void) {
 
 extern "C" void vr_begin_frame(void) {
     if (!sRequested) return;
-    if (!sBootTried) { sBootTried = true; vr_boot(); }
+    if (!sBootTried) {
+        sBootTried = true;
+        vr_boot();
+        if (!sBootOk) {
+            // VR was expected here - the probe found a headset, or --vr forced it - so failing
+            // quietly into the flat game reads as "it did not work" with nothing to report.
+            char msg[900];
+            snprintf(msg, sizeof msg,
+                     "VR could not start, so the game is running flat.\n\n"
+                     "Reason: %s\n\n"
+                     "Things that usually fix it:\n"
+                     "  - Put the headset on and connect (Link / Air Link / Virtual Desktop / SteamVR) BEFORE launching\n"
+                     "  - A sleeping headset reports no HMD: wake it, then relaunch\n"
+                     "  - Check which OpenXR runtime is set as active in your VR software's settings\n\n"
+                     "Full details are in vr-log.txt next to Lighthouse.exe - include it in a bug report.",
+                     sVrLastError[0] ? sVrLastError : "unknown (see vr-log.txt)");
+            vr_alert(msg);
+        }
+    }
     if (sSession == XR_NULL_HANDLE) return;
 
     vr_poll_events();
@@ -1839,7 +1943,7 @@ extern "C" void vr_begin_frame(void) {
             }
             if (have < kSettingsVer) {
                 CVarSetInteger("gVRSettingsVer", kSettingsVer);
-                printf("[VR] settings migrated from v%d to v%d.\n", have, kSettingsVer);
+                vrlog("[VR] settings migrated from v%d to v%d.\n", have, kSettingsVer);
                 fflush(stdout);
             }
         }
@@ -1894,7 +1998,7 @@ extern "C" void vr_begin_frame(void) {
         static int sPrevHz = 0;
         const int hz = vr_display_refresh_hz();
         if (hz != sPrevHz) {
-            printf("[VR] headset refresh %d Hz - pacing the game to match.\n", hz);
+            vrlog("[VR] headset refresh %d Hz - pacing the game to match.\n", hz);
             fflush(stdout);
             sPrevHz = hz;
         }
@@ -1931,7 +2035,7 @@ extern "C" void vr_begin_frame(void) {
             if (!sAutoRecentered && sState == XR_SESSION_STATE_FOCUSED) {
                 sAutoRecentered = true;
                 sRecenterRequest = true;
-                printf("[VR] first focus: auto-recenter.\n");
+                vrlog("[VR] first focus: auto-recenter.\n");
             }
             // A runtime space change re-captures only once the head is calm (~0.3 s under
             // 15 cm/s): deliberate recenters land immediately, tracking blips wait for stillness
@@ -1971,7 +2075,7 @@ extern "C" void vr_begin_frame(void) {
                     sHeadRestSet = false;      // 6DoF rest re-captures against the new origin
                     sHeadWarmup = 0;
                     vr_controller_rumble(0.5f, 0.1f); // the confirmation tick in the hands
-                    printf("[VR] in-game recenter: view yaw + position + height re-zeroed.\n");
+                    vrlog("[VR] in-game recenter: view yaw + position + height re-zeroed.\n");
                 }
             }
             // Apply the active correction to both view poses; everything downstream (eye matrices,
